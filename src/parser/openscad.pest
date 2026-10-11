@@ -1,0 +1,227 @@
+// OpenSCAD Grammar for pest parser generator
+
+module = { SOI ~ top_level* ~ EOI }
+
+top_level = { statement | include_stmt | use_directive }
+
+include_stmt = { Include ~ "<" ~ string_literal ~ ">" }
+use_directive = { Use ~ "<" ~ string_literal ~ ">" }
+
+statement = {
+    function_def
+    | module_def
+    | assignment
+    | module_instantiation
+    | if_stmt
+    | ";"
+    | block
+}
+
+if_stmt = { If ~ "(" ~ expression ~ ")" ~ statement ~ (Else ~ statement)? }
+
+block = { "{" ~ statement* ~ "}" }
+
+assignment = { identifier ~ EqSign ~ expression ~ Semi }
+
+module_def = {
+    Module ~ identifier ~ "(" ~ parameters? ~ ")" ~ statement
+}
+
+function_def = {
+    Function ~ identifier ~ "(" ~ parameters? ~ ")" ~ EqSign ~ expression ~ Semi
+}
+
+parameters = { parameter ~ ("," ~ parameter)* ~ ","? }
+parameter = { identifier ~ (EqSign ~ expression)? }
+
+module_instantiation = {
+    modifier* ~ module_id ~ "(" ~ arguments? ~ ")" ~ (child_block)?
+}
+
+modifier = { "!" | "#" | "%" | "*" }
+
+_keyword = { "if" | "else" | "for" | "while" | "function" | "module" | "include" | "use" | "let" | "assert" | "echo" | "each" | "true" | "false" | "undef" }
+
+module_id = {
+    !( _keyword ) ~ identifier
+    | For
+    | Let
+    | Assert
+    | Echo
+    | Each
+}
+
+arguments = { argument ~ ("," ~ argument)* ~ ","? }
+argument = { expression | (identifier ~ EqSign ~ expression) }
+
+child_block = { block | statement | Semi }
+
+expression = { ternary }
+
+ternary = {
+    logic_or ~ (Question ~ expression ~ Colon ~ expression)?
+}
+
+logic_or = { logic_and ~ (Or ~ logic_and)* }
+logic_and = { equality ~ (And ~ equality)* }
+
+equality = {
+    comparison ~ ((Eq | Neq) ~ comparison)*
+}
+
+comparison = {
+    binary_or ~ ((Lt | Gt | Le | Ge) ~ binary_or)*
+}
+
+binary_or = { binary_and ~ (Pipe ~ binary_and)* }
+binary_and = { shift ~ (Amp ~ shift)* }
+
+shift = {
+    addition ~ ((Lsh | Rsh) ~ addition)*
+}
+
+addition = {
+    multiplication ~ ((Plus | Minus) ~ multiplication)*
+}
+
+multiplication = {
+    unary ~ ((Star | Slash | Percent) ~ unary)*
+}
+
+unary = {
+    (Minus | Bang | Tilde)* ~ postfix
+}
+
+postfix = {
+    atom ~ (function_call_suffix)*
+}
+
+atom = {
+    literal
+    | let_expr
+    | identifier
+    | range
+    | vector
+    | "(" ~ expression ~ ")"
+}
+
+let_expr = { Let ~ "(" ~ let_bindings ~ ")" ~ expression }
+
+let_bindings = { let_binding ~ ("," ~ let_binding)* ~ ","? }
+
+let_binding = { identifier ~ EqSign ~ expression }
+
+function_call_suffix = {
+    "(" ~ arguments? ~ ")"
+    | "[" ~ expression ~ "]"
+    | Dot ~ identifier
+}
+
+literal = {
+    boolean
+    | number
+    | string_literal
+    | Undef
+}
+
+boolean = { True | False }
+
+number = {
+    hex_number
+    | float_number
+    | int_number
+}
+
+hex_number = { HexNumber }
+float_number = { FloatNumber }
+int_number = { IntNumber }
+
+string_literal = { String }
+
+range = {
+    "[" ~ expression ~ ":" ~ expression ~ (":" ~ expression)? ~ "]"
+}
+
+vector = {
+    "[" ~ (expression ~ ("," ~ expression)* ~ ","?)? ~ "]"
+}
+
+identifier = { Ident }
+
+digit = { "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" }
+hex_digit = { digit | "a" | "b" | "c" | "d" | "e" | "f" | "A" | "B" | "C" | "D" | "E" | "F" }
+alpha = { "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R" | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z" }
+alphanumeric = { alpha | digit }
+
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT = _{ "//" ~ (!("\n") ~ ANY)* | "/*" ~ (!("*/") ~ ANY)* ~ "*/" }
+
+// Explicit token rules matching logos token names
+Include = { "include" }
+Use = { "use" }
+Module = { "module" }
+Function = { "function" }
+If = { "if" }
+Else = { "else" }
+Let = { "let" }
+Assert = { "assert" }
+Echo = { "echo" }
+For = { "for" }
+Each = { "each" }
+True = { "true" }
+False = { "false" }
+Undef = { "undef" }
+Le = { "<=" }
+Ge = { ">=" }
+Eq = { "==" }
+Neq = { "!=" }
+And = { "&&" }
+Or = { "||" }
+Lsh = { "<<" }
+Rsh = { ">>" }
+EqSign = { "=" }
+Semi = { ";" }
+LParen = { "(" }
+RParen = { ")" }
+LBrace = { "{" }
+RBrace = { "}" }
+LBracket = { "[" }
+RBracket = { "]" }
+Comma = { "," }
+Plus = { "+" }
+Minus = { "-" }
+Star = { "*" }
+Slash = { "/" }
+Percent = { "%" }
+Caret = { "^" }
+Lt = { "<" }
+Gt = { ">" }
+Bang = { "!" }
+Tilde = { "~" }
+Amp = { "&" }
+Pipe = { "|" }
+Question = { "?" }
+Colon = { ":" }
+Dot = { "." }
+Eot = { "\x03" }
+Nbsp = { "\u{00A0}" }
+Bom = { "\u{FEFF}" }
+
+HexNumber = { "0x" ~ hex_digit+ }
+FloatNumber = { (digit* ~ "." ~ digit+ ~ exponent?) | (digit+ ~ "." ~ digit* ~ exponent?) | (digit+ ~ exponent) }
+IntNumber = { digit+ }
+exponent = { ("e" | "E") ~ ("+" | "-")? ~ digit+ }
+
+String = { "\"" ~ string_content* ~ "\"" }
+string_content = { ESCAPE_SEQUENCE | !("\"" | "\\") ~ ANY }
+
+ESCAPE_SEQUENCE = { "\\" ~ ESCAPE_CHAR }
+
+ESCAPE_CHAR = {
+    "n" | "t" | "r" | "\\" | "\"" | "x" ~ hex_digit ~ hex_digit | "u" ~ "{" ~ hex_digit+ ~ "}" | "U" ~ "{" ~ hex_digit+ ~ "}"
+}
+
+Ident = { IdentInner }
+IdentInner = { ident_start ~ ident_rest* }
+ident_start = { alpha | "_" | "$" }
+ident_rest = { alphanumeric | "_" | "$" }
