@@ -33,7 +33,8 @@ impl Evaluator {
             Expression::FunctionDef { params, body, .. } => self.eval_function_def(params, body),
             Expression::Assert { args, body, .. } => self.eval_assert(args, body.as_deref()),
             Expression::Echo { args, .. } => self.eval_echo(args),
-            Expression::For { .. } | Expression::Each { .. } => Ok(Value::Undef),
+            Expression::For { args, body, .. } => self.eval_for(args, body),
+            Expression::Each { body, .. } => self.eval_each(body),
         }
     }
 
@@ -120,9 +121,74 @@ impl Evaluator {
     fn eval_vector(&mut self, exprs: &[Expression]) -> Result<Value, String> {
         let mut values = Vec::new();
         for e in exprs {
-            values.push(self.eval(e)?);
+            let value = self.eval(e)?;
+            if matches!(e, Expression::For { .. } | Expression::Each { .. }) {
+                if let Value::Vector(items) = value {
+                    values.extend(items);
+                    continue;
+                }
+            }
+            values.push(value);
         }
         Ok(Value::Vector(values))
+    }
+
+    fn eval_for(&mut self, bindings: &[Assignment], body: &Expression) -> Result<Value, String> {
+        if bindings.is_empty() {
+            return Err("for expression requires at least one binding".into());
+        }
+
+        let mut values = Vec::new();
+        self.eval_for_bindings(bindings, 0, body, &mut values)?;
+        Ok(Value::Vector(values))
+    }
+
+    fn eval_for_bindings(
+        &mut self,
+        bindings: &[Assignment],
+        index: usize,
+        body: &Expression,
+        values: &mut Vec<Value>,
+    ) -> Result<(), String> {
+        let binding = &bindings[index];
+        if binding.name.is_empty() {
+            return Err("for binding requires a variable name".into());
+        }
+        let iterable = binding.value.as_ref()
+            .ok_or_else(|| format!("for binding '{}' requires an expression", binding.name))?;
+        let iterable = self.eval(iterable)?;
+        let items = match iterable {
+            Value::Vector(items) => items,
+            _ => return Err(format!("for binding '{}' must evaluate to a vector", binding.name)),
+        };
+
+        for item in items {
+            let child = Environment::with_parent(self.env.clone());
+            child.define(binding.name.clone(), item);
+            let mut evaluator = Evaluator::new(Rc::new(child));
+            if index + 1 == bindings.len() {
+                values.push(evaluator.eval(body)?);
+            } else {
+                evaluator.eval_for_bindings(bindings, index + 1, body, values)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn eval_each(&mut self, body: &Expression) -> Result<Value, String> {
+        match self.eval(body)? {
+            Value::Vector(items) => {
+                let mut flattened = Vec::new();
+                for item in items {
+                    match item {
+                        Value::Vector(nested) => flattened.extend(nested),
+                        value => flattened.push(value),
+                    }
+                }
+                Ok(Value::Vector(flattened))
+            }
+            value => Ok(value),
+        }
     }
 
     fn eval_range(&mut self, start: &Expression, step: Option<&Expression>, end: &Expression) -> Result<Value, String> {

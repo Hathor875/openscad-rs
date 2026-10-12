@@ -104,4 +104,36 @@ mod tests {
         let env = eval_source("function add(a, b) = a + b; x = add(b = 4, a = 3);").unwrap();
         assert_eq!(env.get("x"), Some(crate::interpreter::Value::Number(7.0)));
     }
+
+    #[test]
+    fn test_for_expression() {
+        let env = eval_source("x = [for (i = [1:3]) i * 2];").unwrap();
+        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![
+            crate::interpreter::Value::Number(2.0),
+            crate::interpreter::Value::Number(4.0),
+            crate::interpreter::Value::Number(6.0),
+        ])));
+    }
+
+    #[test]
+    fn test_nested_for_expression() {
+        let env = eval_source("x = [for (i = [1:2], j = [10:11]) i + j];").unwrap();
+        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![
+            crate::interpreter::Value::Number(11.0),
+            crate::interpreter::Value::Number(12.0),
+            crate::interpreter::Value::Number(12.0),
+            crate::interpreter::Value::Number(13.0),
+        ])));
+    }
+
+    #[test]
+    fn test_each_expression() {
+        let env = eval_source("x = each [[1, 2], [3, 4]];").unwrap();
+        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![
+            crate::interpreter::Value::Number(1.0),
+            crate::interpreter::Value::Number(2.0),
+            crate::interpreter::Value::Number(3.0),
+            crate::interpreter::Value::Number(4.0),
+        ])));
+    }
 }
