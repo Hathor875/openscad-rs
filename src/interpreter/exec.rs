@@ -24,6 +24,16 @@ impl Executor {
         }
     }
 
+    pub fn with_context(env: Rc<Environment>, source_stack: Vec<PathBuf>, loading: HashSet<PathBuf>) -> Self {
+        Self {
+            env,
+            csg_stack: vec![crate::csg::CsgBuilder::new()],
+            source_stack,
+            loading,
+        }
+    }
+
+
     pub fn execute_source(&mut self, source: &crate::ast::SourceFile) -> Result<(), String> {
         let path = if source.path.is_empty() {
             None
@@ -93,7 +103,8 @@ impl Executor {
 
     fn child_nodes(&mut self, children: &[Statement]) -> Result<Vec<crate::csg::CsgNode>, String> {
         let child_env = Environment::with_parent(self.env.clone());
-        let mut child_exec = Executor::new(Rc::new(child_env));
+        let mut child_exec = Executor::with_context(Rc::new(child_env), self.source_stack.clone(), self.loading.clone());
+
         let mut nodes = Vec::new();
         for child in children {
             child_exec.csg_stack.push(CsgBuilder::new());
@@ -136,7 +147,8 @@ impl Executor {
                 for value in values {
                     let loop_env = Environment::with_parent(self.env.clone());
                     loop_env.define(variable.clone(), value);
-                    let mut loop_exec = Executor::new(Rc::new(loop_env));
+                    let mut loop_exec = Executor::with_context(Rc::new(loop_env), self.source_stack.clone(), self.loading.clone());
+
                     for child in children {
                         loop_exec.execute_with_forwarded_children(child, forwarded)?;
                     }
@@ -629,7 +641,7 @@ impl Executor {
             for value in values {
                 let loop_env = Environment::with_parent(self.env.clone());
                 loop_env.define(variable.clone(), value);
-                let mut loop_exec = Executor::new(Rc::new(loop_env));
+                let mut loop_exec = Executor::with_context(Rc::new(loop_env), self.source_stack.clone(), self.loading.clone());
                 for child in children {
                     loop_exec.execute(child)?;
                 }
@@ -677,7 +689,8 @@ impl Executor {
                     new_env.define(param_name.clone(), value);
                 }
                 
-                let mut exec = Executor::new(Rc::new(new_env));
+                let mut exec = Executor::with_context(Rc::new(new_env), self.source_stack.clone(), self.loading.clone());
+
                 for stmt in &module.body {
                     exec.execute_with_forwarded_children(stmt, children)?;
                 }
