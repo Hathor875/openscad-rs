@@ -151,7 +151,7 @@ impl Executor {
         let Some(argument) = arguments.iter().find(|argument| {
             argument.name == name || argument.name.strip_prefix('$') == Some(name)
         }).or_else(|| {
-            if name == "file" {
+            if matches!(name, "file" | "text") {
                 arguments.iter().find(|argument| argument.name.is_empty())
             } else {
                 None
@@ -501,6 +501,22 @@ impl Executor {
                     }
                 }
                 println!("ECHO: {}", output.join(", "));
+                Ok(Some(()))
+            }
+            "text" => {
+                let text = self.get_string(arguments, "text")?
+                    .ok_or_else(|| "text requires a string".to_string())?;
+                let size = self.get_arg(arguments, "size")?.unwrap_or(10.0);
+                if size <= 0.0 {
+                    return Err("text size must be positive".into());
+                }
+                self.current_builder().add_primitive(Primitive::Text {
+                    text,
+                    size,
+                    font: String::new(),
+                    halign: String::from("left"),
+                    valign: String::from("baseline"),
+                });
                 Ok(Some(()))
             }
             // Primitive shapes - add to current builder

@@ -411,6 +411,22 @@ mod tests {
     }
 
     #[test]
+    fn test_text_builds_planar_geometry_and_extrudes() {
+        let parsed = Parser::parse(
+            "linear_extrude(height = 2) text(\"CAD\", size = 5);",
+        ).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.vertices.len(), 24);
+        assert_eq!(mesh.faces.len(), 36);
+        assert_eq!(
+            mesh.vertices.iter().map(|vertex| vertex[2]).fold(f64::NEG_INFINITY, f64::max),
+            2.0
+        );
+    }
+
+    #[test]
     fn test_linear_extrude_builds_solid_mesh() {
         let input = "linear_extrude(height = 3) polygon(points = [[0,0], [2,0], [2,1], [0,1]]);";
         let parsed = Parser::parse(input).unwrap();
