@@ -332,6 +332,25 @@ mod tests {
     }
 
     #[test]
+    fn test_difference_preserves_a_central_opening() {
+        let parsed = Parser::parse(
+            "difference() { cube([10, 10, 10], center = true); cylinder(h = 20, r = 2, center = true, $fn = 16); }",
+        ).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        let min_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::INFINITY, f64::min);
+        let max_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::NEG_INFINITY, f64::max);
+        let min_z = mesh.vertices.iter().map(|vertex| vertex[2]).fold(f64::INFINITY, f64::min);
+        let max_z = mesh.vertices.iter().map(|vertex| vertex[2]).fold(f64::NEG_INFINITY, f64::max);
+        assert!((min_x + 5.0).abs() < 1e-9);
+        assert!((max_x - 5.0).abs() < 1e-9);
+        assert!((min_z + 5.0).abs() < 1e-9);
+        assert!((max_z - 5.0).abs() < 1e-9);
+        assert!(mesh.faces.len() > 24);
+    }
+
+    #[test]
     fn test_polyhedron_builds_mesh() {
         let input = "polyhedron(points = [[0,0,0], [1,0,0], [0,1,0], [0,0,1]], faces = [[0,2,1], [0,1,3], [0,3,2], [1,2,3]]);";
         let parsed = Parser::parse(input).unwrap();

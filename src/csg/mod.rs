@@ -231,7 +231,7 @@ impl Mesh {
         
         // 12 triangles (2 per face)
         let faces = [
-            [0, 1, 2], [0, 2, 3], // bottom
+            [0, 2, 1], [0, 3, 2], // bottom
             [4, 5, 6], [4, 6, 7], // top
             [0, 1, 5], [0, 5, 4], // front
             [2, 3, 7], [2, 7, 6], // back
