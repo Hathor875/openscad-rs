@@ -81,6 +81,10 @@ impl Mesh {
         }
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.vertices.is_empty() || self.faces.is_empty()
+    }
+
     fn valid_face(&self, face: &[usize; 3]) -> bool {
         if face.iter().any(|&index| index >= self.vertices.len()) {
             return false;

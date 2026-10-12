@@ -39,12 +39,16 @@ fn run(args: Vec<String>) -> Result<(), String> {
         .map_err(|error| format!("failed to parse '{input}': {error}"))?;
     let env = Rc::new(Environment::new());
     let mut exec = Executor::new(env);
-    exec.execute_source(&parsed)?;
+    exec.execute_source(&parsed)
+        .map_err(|error| format!("failed to evaluate '{input}': {error}"))?;
 
     if let Some(output) = output {
         let Some(mesh) = exec.build_mesh() else {
-            return Err("model produced no geometry".into());
+            return Err(format!("model '{input}' produced no geometry"));
         };
+        if mesh.is_empty() {
+            return Err(format!("model '{input}' produced no exportable faces"));
+        }
         let format = output.rsplit('.').next().unwrap_or_default().to_ascii_lowercase();
         let contents = match format.as_str() {
             "stl" => mesh.to_stl(),
