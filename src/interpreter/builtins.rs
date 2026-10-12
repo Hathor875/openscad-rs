@@ -171,18 +171,72 @@ fn builtin_abs(args: Vec<Value>) -> Result<Value, String> {
 }
 
 fn builtin_floor(args: Vec<Value>) -> Result<Value, String> {
-    let nums = expect_num(&args, 1)?;
-    Ok(Value::Number(nums[0].floor()))
+    if args.len() == 1 {
+        match &args[0] {
+            Value::Number(n) => Ok(Value::Number(n.floor())),
+            Value::Vector(v) => {
+                let mut result = Vec::new();
+                for elem in v {
+                    if let Value::Number(ne) = elem {
+                        result.push(Value::Number(ne.floor()));
+                    } else {
+                        return Err("floor expects vector of numbers".into());
+                    }
+                }
+                Ok(Value::Vector(result))
+            }
+            _ => Err("floor expects number or vector of numbers".into()),
+        }
+    } else {
+        let nums = expect_num(&args, 1)?;
+        Ok(Value::Number(nums[0].floor()))
+    }
 }
 
 fn builtin_ceil(args: Vec<Value>) -> Result<Value, String> {
-    let nums = expect_num(&args, 1)?;
-    Ok(Value::Number(nums[0].ceil()))
+    if args.len() == 1 {
+        match &args[0] {
+            Value::Number(n) => Ok(Value::Number(n.ceil())),
+            Value::Vector(v) => {
+                let mut result = Vec::new();
+                for elem in v {
+                    if let Value::Number(ne) = elem {
+                        result.push(Value::Number(ne.ceil()));
+                    } else {
+                        return Err("ceil expects vector of numbers".into());
+                    }
+                }
+                Ok(Value::Vector(result))
+            }
+            _ => Err("ceil expects number or vector of numbers".into()),
+        }
+    } else {
+        let nums = expect_num(&args, 1)?;
+        Ok(Value::Number(nums[0].ceil()))
+    }
 }
 
 fn builtin_round(args: Vec<Value>) -> Result<Value, String> {
-    let nums = expect_num(&args, 1)?;
-    Ok(Value::Number(nums[0].round()))
+    if args.len() == 1 {
+        match &args[0] {
+            Value::Number(n) => Ok(Value::Number(n.round())),
+            Value::Vector(v) => {
+                let mut result = Vec::new();
+                for elem in v {
+                    if let Value::Number(ne) = elem {
+                        result.push(Value::Number(ne.round()));
+                    } else {
+                        return Err("round expects vector of numbers".into());
+                    }
+                }
+                Ok(Value::Vector(result))
+            }
+            _ => Err("round expects number or vector of numbers".into()),
+        }
+    } else {
+        let nums = expect_num(&args, 1)?;
+        Ok(Value::Number(nums[0].round()))
+    }
 }
 
 fn builtin_sign(args: Vec<Value>) -> Result<Value, String> {
@@ -192,14 +246,46 @@ fn builtin_sign(args: Vec<Value>) -> Result<Value, String> {
 
 fn builtin_min(args: Vec<Value>) -> Result<Value, String> {
     if args.is_empty() { return Err("min expects at least 1 argument".into()); }
-    let nums = expect_num(&args, args.len())?;
-    Ok(Value::Number(nums.into_iter().fold(f64::INFINITY, f64::min)))
+    if args.len() == 1 {
+        match &args[0] {
+            Value::Vector(v) => {
+                if v.is_empty() { return Err("min expects a non-empty vector".into()); }
+                let mut min_val = v[0].as_number()?;
+                for elem in v.iter().skip(1) {
+                    if let Value::Number(e) = elem {
+                        if e < &min_val { min_val = *e; }
+                    }
+                }
+                Ok(Value::Number(min_val))
+            }
+            _ => expect_num(&args, 1).map(|n| Value::Number(n.into_iter().fold(f64::INFINITY, f64::min))),
+        }
+    } else {
+        let nums = expect_num(&args, args.len())?;
+        Ok(Value::Number(nums.into_iter().fold(f64::INFINITY, f64::min)))
+    }
 }
 
 fn builtin_max(args: Vec<Value>) -> Result<Value, String> {
     if args.is_empty() { return Err("max expects at least 1 argument".into()); }
-    let nums = expect_num(&args, args.len())?;
-    Ok(Value::Number(nums.into_iter().fold(f64::NEG_INFINITY, f64::max)))
+    if args.len() == 1 {
+        match &args[0] {
+            Value::Vector(v) => {
+                if v.is_empty() { return Err("max expects a non-empty vector".into()); }
+                let mut max_val = v[0].as_number()?;
+                for elem in v.iter().skip(1) {
+                    if let Value::Number(e) = elem {
+                        if e > &max_val { max_val = *e; }
+                    }
+                }
+                Ok(Value::Number(max_val))
+            }
+            _ => expect_num(&args, 1).map(|n| Value::Number(n.into_iter().fold(f64::NEG_INFINITY, f64::max))),
+        }
+    } else {
+        let nums = expect_num(&args, args.len())?;
+        Ok(Value::Number(nums.into_iter().fold(f64::NEG_INFINITY, f64::max)))
+    }
 }
 
 fn builtin_len(args: Vec<Value>) -> Result<Value, String> {

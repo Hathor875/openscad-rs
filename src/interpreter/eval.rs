@@ -106,11 +106,56 @@ impl Evaluator {
                     Value::Vector(vector.iter().map(|value| {
                         Ok(Value::Number(value.as_number()? * scalar))
                     }).collect::<Result<Vec<_>, String>>()?),
+                // Matrix * Matrix (e.g. 4x4 * 4x4 or NxK * KxM)
+                (Value::Vector(m1), Value::Vector(m2)) if !m1.is_empty() && matches!(m1.first(), Some(Value::Vector(_))) && !m2.is_empty() && matches!(m2.first(), Some(Value::Vector(_))) => {
+                    let rows_a = m1.len();
+                    let cols_a = match &m1[0] { Value::Vector(v) => v.len(), _ => 0 };
+                    let rows_b = m2.len();
+                    let cols_b = match &m2[0] { Value::Vector(v) => v.len(), _ => 0 };
+                    if cols_a == rows_b {
+                        let mut res_mat = Vec::with_capacity(rows_a);
+                        for i in 0..rows_a {
+                            let mut row = Vec::with_capacity(cols_b);
+                            for j in 0..cols_b {
+                                let mut sum = 0.0;
+                                for k in 0..cols_a {
+                                    let a_ik = match &m1[i] { Value::Vector(v) => v[k].as_number()?, _ => 0.0 };
+                                    let b_kj = match &m2[k] { Value::Vector(v) => v[j].as_number()?, _ => 0.0 };
+                                    sum += a_ik * b_kj;
+                                }
+                                row.push(Value::Number(sum));
+                            }
+                            res_mat.push(Value::Vector(row));
+                        }
+                        Value::Vector(res_mat)
+                    } else {
+                        return Err(format!("Matrix dimensions mismatch for multiplication: {}x{} vs {}x{}", rows_a, cols_a, rows_b, cols_b));
+                    }
+                },
+                // Matrix * Vector (or Vector * Matrix)
+                (Value::Vector(m), Value::Vector(v)) if !m.is_empty() && matches!(m.first(), Some(Value::Vector(_))) => {
+                    let mut res = Vec::with_capacity(m.len());
+                    for row in m {
+                        if let Value::Vector(row_vec) = row {
+                            let mut sum = 0.0;
+                            for (a, b) in row_vec.iter().zip(v.iter()) {
+                                sum += a.as_number()? * b.as_number()?;
+                            }
+                            res.push(Value::Number(sum));
+                        }
+                    }
+                    Value::Vector(res)
+                },
                 _ => Value::Number(left_val.as_number()? * right_val.as_number()?),
             },
             BinaryOp::Divide => {
                 if left_val.is_undef() || right_val.is_undef() {
                     Value::Undef
+                } else if let (Value::Vector(vec), Value::Number(scalar)) = (&left_val, &right_val) {
+                    if *scalar == 0.0 { return Err("Division by zero".into()); }
+                    Value::Vector(vec.iter().map(|item| {
+                        Ok(Value::Number(item.as_number()? / scalar))
+                    }).collect::<Result<Vec<_>, String>>()?)
                 } else {
                     let r = right_val.as_number()?;
                     if r == 0.0 { return Err("Division by zero".into()); }
@@ -418,15 +463,22 @@ impl Evaluator {
     fn eval_index(&mut self, expr: &Expression, index: &Expression) -> Result<Value, String> {
         let vec_val = self.eval(expr)?;
         let idx_val = self.eval(index)?;
-        let idx = idx_val.as_number()? as usize;
+        let Ok(idx_num) = idx_val.as_number() else {
+            return Ok(Value::Undef);
+        };
+        if idx_num < 0.0 {
+            return Ok(Value::Undef);
+        }
+        let idx = idx_num as usize;
         
         match vec_val {
-            Value::Vector(v) => v.get(idx).cloned().ok_or_else(|| "Index out of bounds".into()),
+            Value::Vector(v) => Ok(v.get(idx).cloned().unwrap_or(Value::Undef)),
             Value::String(s) => {
                 let chars: Vec<char> = s.chars().collect();
-                chars.get(idx).map(|c| Value::String(c.to_string())).ok_or_else(|| "Index out of bounds".into())
+                Ok(chars.get(idx).map(|c| Value::String(c.to_string())).unwrap_or(Value::Undef))
             }
-            _ => Err("Index operator only works on vectors and strings".into()),
+            Value::Undef => Ok(Value::Undef),
+            _ => Ok(Value::Undef),
         }
     }
 
