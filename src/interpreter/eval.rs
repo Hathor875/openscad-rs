@@ -6,6 +6,7 @@ use crate::interpreter::builtins::Builtins;
 pub struct Evaluator {
     pub env: Rc<Environment>,
     builtins: Builtins,
+    pub depth: usize,
 }
 
 impl Evaluator {
@@ -13,6 +14,15 @@ impl Evaluator {
         Self {
             env,
             builtins: Builtins::new(),
+            depth: 0,
+        }
+    }
+
+    pub fn with_depth(env: Rc<Environment>, depth: usize) -> Self {
+        Self {
+            env,
+            builtins: Builtins::new(),
+            depth,
         }
     }
 
@@ -449,6 +459,9 @@ impl Evaluator {
 
         match func_val {
             Value::Function(func) => {
+                if self.depth >= 100 {
+                    return Err(format!("Recursion detected calling function '{}'", func.name));
+                }
                 let parent_env = if func.name == "anonymous" {
                     func.captures.clone()
                 } else {
@@ -469,7 +482,7 @@ impl Evaluator {
                             Value::Undef
                         }
                     } else if let Some(default_expr) = default {
-                        let mut eval = Evaluator::new(new_env_rc.clone());
+                        let mut eval = Evaluator::with_depth(new_env_rc.clone(), self.depth + 1);
                         eval.eval(default_expr)?
                     } else {
                         return Err(format!("Missing argument for parameter '{}'", param_name));
@@ -477,7 +490,7 @@ impl Evaluator {
                     new_env_rc.define(param_name.clone(), value);
                 }
                 
-                let mut eval = Evaluator::new(new_env_rc);
+                let mut eval = Evaluator::with_depth(new_env_rc, self.depth + 1);
                 eval.eval(&func.body)
             }
             _ => Err(format!("'{}' is not a function", name)),

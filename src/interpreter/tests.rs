@@ -957,6 +957,26 @@ mod tests {
         assert_eq!(env.get("y"), Some(crate::interpreter::Value::Number(200.0)));
     }
 
+    #[test]
+    fn test_recursion_limit_function() {
+        let res = eval_source("
+            function rec(x) = rec(x + 1);
+            val = rec(0);
+        ");
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Recursion detected"));
+    }
+
+    #[test]
+    fn test_recursion_limit_module() {
+        let res = eval_source("
+            module rec(x) { rec(x + 1); }
+            rec(0);
+        ");
+        assert!(res.is_err());
+        assert!(res.unwrap_err().contains("Recursion detected"));
+    }
+
     fn unique_fixture_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
             "openscad-rust-{}-{}",

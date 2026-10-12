@@ -12,6 +12,7 @@ pub struct Executor {
     csg_stack: Vec<crate::csg::CsgBuilder>,
     source_stack: Vec<PathBuf>,
     loading: HashSet<PathBuf>,
+    pub depth: usize,
 }
 
 impl Executor {
@@ -21,6 +22,7 @@ impl Executor {
             csg_stack: vec![crate::csg::CsgBuilder::new()],
             source_stack: Vec::new(),
             loading: HashSet::new(),
+            depth: 0,
         }
     }
 
@@ -30,6 +32,17 @@ impl Executor {
             csg_stack: vec![crate::csg::CsgBuilder::new()],
             source_stack,
             loading,
+            depth: 0,
+        }
+    }
+
+    pub fn with_depth(env: Rc<Environment>, source_stack: Vec<PathBuf>, loading: HashSet<PathBuf>, depth: usize) -> Self {
+        Self {
+            env,
+            csg_stack: vec![crate::csg::CsgBuilder::new()],
+            source_stack,
+            loading,
+            depth,
         }
     }
 
@@ -90,7 +103,7 @@ impl Executor {
 
     fn child_nodes(&mut self, children: &[Statement]) -> Result<Vec<crate::csg::CsgNode>, String> {
         let child_env = Environment::with_parent(self.env.clone());
-        let mut child_exec = Executor::with_context(Rc::new(child_env), self.source_stack.clone(), self.loading.clone());
+        let mut child_exec = Executor::with_depth(Rc::new(child_env), self.source_stack.clone(), self.loading.clone(), self.depth + 1);
 
         let mut nodes = Vec::new();
         for child in children {
@@ -134,7 +147,7 @@ impl Executor {
                 for value in values {
                     let loop_env = Environment::with_parent(self.env.clone());
                     loop_env.define(variable.clone(), value);
-                    let mut loop_exec = Executor::with_context(Rc::new(loop_env), self.source_stack.clone(), self.loading.clone());
+                    let mut loop_exec = Executor::with_depth(Rc::new(loop_env), self.source_stack.clone(), self.loading.clone(), self.depth + 1);
 
                     for child in children {
                         loop_exec.execute_with_forwarded_children(child, forwarded)?;
@@ -678,7 +691,7 @@ impl Executor {
             for value in values {
                 let loop_env = Environment::with_parent(self.env.clone());
                 loop_env.define(variable.clone(), value);
-                let mut loop_exec = Executor::with_context(Rc::new(loop_env), self.source_stack.clone(), self.loading.clone());
+                let mut loop_exec = Executor::with_depth(Rc::new(loop_env), self.source_stack.clone(), self.loading.clone(), self.depth + 1);
                 for child in children {
                     loop_exec.execute(child)?;
                 }
@@ -724,7 +737,7 @@ impl Executor {
                     Value::Undef
                 }
             } else if let Some(default_expr) = default {
-                let mut eval = Evaluator::new(new_env_rc.clone());
+                let mut eval = Evaluator::with_depth(new_env_rc.clone(), self.depth + 1);
                 eval.eval(default_expr)?
             } else {
                 return Err(format!("Missing argument for parameter '{}'", param_name));
@@ -732,8 +745,11 @@ impl Executor {
             new_env_rc.define(param_name.clone(), value);
         }
         
-        let mut exec = Executor::with_context(new_env_rc, self.source_stack.clone(), self.loading.clone());
-                exec.hoist_definitions(&module.body)?;
+        if self.depth >= 50 {
+            return Err(format!("Recursion detected calling module '{}'", name));
+        }
+        let mut exec = Executor::with_depth(new_env_rc, self.source_stack.clone(), self.loading.clone(), self.depth + 1);
+        exec.hoist_definitions(&module.body)?;
 
                 for stmt in &module.body {
                     if !matches!(stmt, Statement::FunctionDef { .. } | Statement::ModuleDef { .. }) {
@@ -1326,7 +1342,7 @@ impl Executor {
     }
     
     fn eval_expr(&mut self, expr: &Expression) -> Result<Value, String> {
-        let mut evaluator = Evaluator::new(self.env.clone());
+        let mut evaluator = Evaluator::with_depth(self.env.clone(), self.depth);
         evaluator.eval(expr)
     }
 }
