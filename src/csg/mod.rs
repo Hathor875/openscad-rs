@@ -173,7 +173,15 @@ impl Mesh {
             mesh.faces.push([a, d, c]);
         }
         
-        // Top and bottom caps (simplified)
+        let bottom_center = mesh.vertices.len();
+        mesh.vertices.push([0.0, 0.0, z_offset * h]);
+        let top_center = mesh.vertices.len();
+        mesh.vertices.push([0.0, 0.0, (1.0 + z_offset) * h]);
+        for j in 0..seg {
+            let next = (j + 1) % seg;
+            mesh.faces.push([bottom_center, next, j]);
+            mesh.faces.push([top_center, seg + j, seg + next]);
+        }
         mesh.normals = vec![[0.0, 0.0, 1.0]; mesh.vertices.len()];
         mesh
     }

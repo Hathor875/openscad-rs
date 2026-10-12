@@ -131,7 +131,9 @@ impl Executor {
     }
     
     fn get_arg(&mut self, arguments: &[Assignment], name: &str) -> Result<Option<f64>, String> {
-        match arguments.iter().find(|a| a.name == name) {
+        match arguments.iter().find(|a| {
+            a.name == name || a.name.strip_prefix('$') == Some(name)
+        }) {
             Some(a) => {
                 if let Some(expr) = &a.value {
                     let v = self.eval_expr(expr)?;
@@ -146,7 +148,9 @@ impl Executor {
     }
     
     fn get_bool(&mut self, arguments: &[Assignment], name: &str, default: bool) -> Result<bool, String> {
-        match arguments.iter().find(|a| a.name == name) {
+        match arguments.iter().find(|a| {
+            a.name == name || a.name.strip_prefix('$') == Some(name)
+        }) {
             Some(a) => {
                 if let Some(expr) = &a.value {
                     let v = self.eval_expr(expr)?;
@@ -268,6 +272,24 @@ impl Executor {
                 let fa = self.get_arg(arguments, "fa")?;
                 let fs = self.get_arg(arguments, "fs")?;
                 self.current_builder().add_primitive(Primitive::Sphere { r, d: None, fn_, fa, fs });
+                Ok(Some(()))
+            }
+            "cylinder" => {
+                let h = self.get_arg(arguments, "h")?.unwrap_or(1.0);
+                let r = self.get_arg(arguments, "r")?;
+                let d = self.get_arg(arguments, "d")?.map(|value| value / 2.0);
+                let r1 = self.get_arg(arguments, "r1")?.or(r).or(d).unwrap_or(1.0);
+                let r2 = self.get_arg(arguments, "r2")?.or(r).or(d).unwrap_or(r1);
+                if h <= 0.0 || r1 < 0.0 || r2 < 0.0 || (r1 == 0.0 && r2 == 0.0) {
+                    return Err("cylinder requires positive height and radius".into());
+                }
+                let fn_ = self.get_arg(arguments, "fn")?.map(|value| value as usize);
+                let fa = self.get_arg(arguments, "fa")?;
+                let fs = self.get_arg(arguments, "fs")?;
+                let center = self.get_bool(arguments, "center", false)?;
+                self.current_builder().add_primitive(Primitive::Cylinder {
+                    h, r1, r2, d1: None, d2: None, center, fn_, fa, fs,
+                });
                 Ok(Some(()))
             }
             "square" => {

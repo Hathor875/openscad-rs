@@ -149,6 +149,17 @@ mod tests {
     }
 
     #[test]
+    fn test_cylinder_builds_closed_mesh() {
+        let parsed = Parser::parse("cylinder(h = 4, r = 2, $fn = 12);").unwrap();
+        let env = Rc::new(Environment::new());
+        let mut exec = Executor::new(env);
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.vertices.len(), 26);
+        assert_eq!(mesh.faces.len(), 48);
+    }
+
+    #[test]
     fn test_include_loads_relative_assignments() {
         let dir = unique_fixture_dir("include");
         fs::create_dir_all(&dir).unwrap();
