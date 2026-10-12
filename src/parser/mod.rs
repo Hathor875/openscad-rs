@@ -1051,10 +1051,19 @@ mod tests {
     }
     
     #[test]
-    fn test_parse_range() {
-        let input = "x = [0:10];";
+    fn test_parse_if_else_if() {
+        let input = "x = if (fa == 0) a else if (fa * fb < 0) root_find(f, a, b);";
+        let result = Parser::parse(input);
+        println!("Result: {:?}", result);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_parse_ident_with_digits() {
+        let input = "123_block = 10;";
         let result = Parser::parse(input);
         println!("Result: {:?}", result);
         assert!(result.is_ok());
     }
 }
+

@@ -31,6 +31,8 @@ impl Builtins {
         functions.insert("ceil".to_string(), builtin_ceil as BuiltinFn);
         functions.insert("round".to_string(), builtin_round as BuiltinFn);
         functions.insert("sign".to_string(), builtin_sign as BuiltinFn);
+        functions.insert("reverse".to_string(), builtin_reverse as BuiltinFn);
+        functions.insert("shuffle".to_string(), builtin_shuffle as BuiltinFn);
         
         functions.insert("min".to_string(), builtin_min as BuiltinFn);
         functions.insert("max".to_string(), builtin_max as BuiltinFn);
@@ -38,6 +40,7 @@ impl Builtins {
         functions.insert("len".to_string(), builtin_len as BuiltinFn);
         functions.insert("norm".to_string(), builtin_norm as BuiltinFn);
         functions.insert("cross".to_string(), builtin_cross as BuiltinFn);
+        functions.insert("unit".to_string(), builtin_unit as BuiltinFn);
         
         functions.insert("str".to_string(), builtin_str as BuiltinFn);
         functions.insert("chr".to_string(), builtin_chr as BuiltinFn);
@@ -240,8 +243,70 @@ fn builtin_round(args: Vec<Value>) -> Result<Value, String> {
 }
 
 fn builtin_sign(args: Vec<Value>) -> Result<Value, String> {
-    let nums = expect_num(&args, 1)?;
-    Ok(Value::Number(if nums[0] > 0.0 { 1.0 } else if nums[0] < 0.0 { -1.0 } else { 0.0 }))
+    if args.len() != 1 {
+        return Err("sign expects 1 argument".into());
+    }
+    match &args[0] {
+        Value::Number(n) => Ok(Value::Number(if *n > 0.0 { 1.0 } else if *n < 0.0 { -1.0 } else { 0.0 })),
+        Value::Vector(v) => {
+            let mut result = Vec::new();
+            for elem in v {
+                if let Value::Number(e) = elem {
+                    result.push(Value::Number(if *e > 0.0 { 1.0 } else if *e < 0.0 { -1.0 } else { 0.0 }));
+                } else {
+                    return Err("sign expects vector of numbers".into());
+                }
+            }
+            Ok(Value::Vector(result))
+        }
+        _ => Err("sign expects a number or vector of numbers".into()),
+    }
+}
+
+fn builtin_reverse(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("reverse expects 1 argument".into());
+    }
+    match &args[0] {
+        Value::Vector(v) => Ok(Value::Vector(v.iter().rev().cloned().collect())),
+        Value::String(s) => Ok(Value::String(s.chars().rev().collect())),
+        _ => Err("reverse expects a vector or string".into()),
+    }
+}
+
+fn builtin_shuffle(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("shuffle expects 1 argument".into());
+    }
+    match &args[0] {
+        Value::Vector(v) => {
+            let mut result = v.clone();
+            let mut state: u64 = 123456789;
+            for i in (1..result.len()).rev() {
+                state ^= state >> 12;
+                state ^= state << 25;
+                state ^= state >> 27;
+                state = state.wrapping_mul(0x2545F4914f6cdd1d);
+                let j = (state as usize) % (i + 1);
+                result.swap(i, j);
+            }
+            Ok(Value::Vector(result))
+        }
+        Value::String(s) => {
+            let mut chars: Vec<char> = s.chars().collect();
+            let mut state: u64 = 123456789;
+            for i in (1..chars.len()).rev() {
+                state ^= state >> 12;
+                state ^= state << 25;
+                state ^= state >> 27;
+                state = state.wrapping_mul(0x2545F4914f6cdd1d);
+                let j = (state as usize) % (i + 1);
+                chars.swap(i, j);
+            }
+            Ok(Value::String(chars.into_iter().collect()))
+        }
+        _ => Err("shuffle expects a vector or string".into()),
+    }
 }
 
 fn builtin_min(args: Vec<Value>) -> Result<Value, String> {
@@ -306,14 +371,60 @@ fn builtin_norm(args: Vec<Value>) -> Result<Value, String> {
 fn builtin_cross(args: Vec<Value>) -> Result<Value, String> {
     let vecs = expect_vec(&args, 2)?;
     let a = &vecs[0]; let b = &vecs[1];
-    if a.len() != 3 || b.len() != 3 { return Err("cross product requires 3D vectors".into()); }
-    let ax = a[0].as_number()?; let ay = a[1].as_number()?; let az = a[2].as_number()?;
-    let bx = b[0].as_number()?; let by = b[1].as_number()?; let bz = b[2].as_number()?;
-    Ok(Value::Vector(vec![
-        Value::Number(ay * bz - az * by),
-        Value::Number(az * bx - ax * bz),
-        Value::Number(ax * by - ay * bx),
-    ]))
+    let la = a.len();
+    let lb = b.len();
+    
+    if la == 3 && lb == 3 {
+        // 3D cross product
+        let ax = a[0].as_number()?; let ay = a[1].as_number()?; let az = a[2].as_number()?;
+        let bx = b[0].as_number()?; let by = b[1].as_number()?; let bz = b[2].as_number()?;
+        Ok(Value::Vector(vec![
+            Value::Number(ay * bz - az * by),
+            Value::Number(az * bx - ax * bz),
+            Value::Number(ax * by - ay * bx),
+        ]))
+    } else if la == 2 && lb == 2 {
+        // 2D cross product (scalar: x1*y2 - y1*x2)
+        let ax = a[0].as_number()?; let ay = a[1].as_number()?;
+        let bx = b[0].as_number()?; let by = b[1].as_number()?;
+        Ok(Value::Number(ax * by - ay * bx))
+    } else {
+        Err("cross product requires 2D or 3D vectors".into())
+    }
+}
+
+fn builtin_unit(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("unit expects 1 argument".into());
+    }
+    match &args[0] {
+        Value::Vector(v) => {
+            let norm_val = builtin_norm(args.clone())?;
+            let norm_f64 = norm_val.as_number()?;
+            if norm_f64 == 0.0 {
+                Ok(Value::Undef)
+            } else {
+                let mut result = Vec::new();
+                for elem in v {
+                    if let Value::Number(e) = elem {
+                        result.push(Value::Number(e / norm_f64));
+                    } else {
+                        return Err("unit expects vector of numbers".into());
+                    }
+                }
+                Ok(Value::Vector(result))
+            }
+        }
+        Value::Number(_) => {
+            // For a single number, unit returns 1.0 or undef
+            if args[0].as_number()? == 0.0 {
+                Ok(Value::Undef)
+            } else {
+                Ok(Value::Number(1.0))
+            }
+        }
+        _ => Err("unit expects a vector or number".into()),
+    }
 }
 
 fn builtin_str(args: Vec<Value>) -> Result<Value, String> {
@@ -325,9 +436,28 @@ fn builtin_str(args: Vec<Value>) -> Result<Value, String> {
 }
 
 fn builtin_chr(args: Vec<Value>) -> Result<Value, String> {
-    let nums = expect_num(&args, 1)?;
-    let c = char::from_u32(nums[0] as u32).ok_or("Invalid Unicode code point")?;
-    Ok(Value::String(c.to_string()))
+    if args.len() != 1 {
+        return Err("chr expects 1 argument".into());
+    }
+    match &args[0] {
+        Value::Number(n) => {
+            let c = char::from_u32(*n as u32).ok_or("Invalid Unicode code point")?;
+            Ok(Value::String(c.to_string()))
+        }
+        Value::Vector(v) => {
+            let mut result = String::new();
+            for elem in v {
+                if let Value::Number(n) = elem {
+                    let c = char::from_u32(*n as u32).ok_or("Invalid Unicode code point")?;
+                    result.push(c);
+                } else {
+                    return Err("chr expects vector of numbers".into());
+                }
+            }
+            Ok(Value::String(result))
+        }
+        _ => Err("chr expects a number or vector of numbers".into()),
+    }
 }
 
 fn builtin_ord(args: Vec<Value>) -> Result<Value, String> {

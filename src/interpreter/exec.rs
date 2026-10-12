@@ -1109,17 +1109,31 @@ impl Executor {
                 }
                 Ok(Some(()))
             }
-            "offset" | "projection" => {
-                // Execute children and pass through geometry
-                self.csg_stack.push(CsgBuilder::new());
-                for child in children {
-                    self.execute(child)?;
-                }
-                if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
-                    self.current_builder().union(child_csg);
-                }
-                Ok(Some(()))
-            }
+            "offset" => {
+        let _r_opt = self.get_arg(arguments, "r");
+        let _chamfer = self.get_bool(arguments, "chamfer", false).unwrap_or(false) || self.get_bool(arguments, "chamfered", false).unwrap_or(false);
+        
+        self.csg_stack.push(CsgBuilder::new());
+        for child in children {
+            self.execute(child)?;
+        }
+        if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
+            self.current_builder().union(child_csg);
+        }
+        Ok(Some(()))
+    }
+    "projection" => {
+        let _cut = self.get_bool(arguments, "cut", false).unwrap_or(false) || self.get_bool(arguments, "cull", false).unwrap_or(false);
+        
+        self.csg_stack.push(CsgBuilder::new());
+        for child in children {
+            self.execute(child)?;
+        }
+        if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
+            self.current_builder().union(child_csg);
+        }
+        Ok(Some(()))
+    }
             // Boolean operations
             "union" => {
                 let mut nodes = self.child_nodes(children)?.into_iter();

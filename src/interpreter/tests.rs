@@ -860,6 +860,79 @@ mod tests {
         assert!(!mesh.is_empty());
     }
 
+    #[test]
+    fn test_builtin_chr_single() {
+        let env = eval_source("x = chr(65);").unwrap();
+        assert_eq!(env.get("x"), Some(crate::interpreter::Value::String("A".to_string())));
+    }
+
+    #[test]
+    fn test_builtin_chr_vector() {
+        let env = eval_source("x = chr([65, 66, 67]);").unwrap();
+        assert_eq!(
+            env.get("x"),
+            Some(crate::interpreter::Value::String("ABC".to_string()))
+        );
+    }
+
+    #[test]
+    fn test_builtin_chr_invalid() {
+        let result = eval_source("x = chr(\"invalid\");").unwrap_err();
+        assert!(result.contains("number"));
+    }
+
+    #[test]
+    fn test_builtin_cross_3d() {
+        let env = eval_source("x = cross([1, 0, 0], [0, 1, 0]);").unwrap();
+        assert_eq!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Vector(vec![
+                crate::interpreter::Value::Number(0.0),
+                crate::interpreter::Value::Number(0.0),
+                crate::interpreter::Value::Number(1.0),
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_builtin_cross_2d() {
+        let env = eval_source("x = cross([1, 0], [0, 1]);").unwrap();
+        assert_eq!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Number(1.0))
+        );
+    }
+
+    #[test]
+    fn test_builtin_cross_invalid_dim() {
+        let result = eval_source("x = cross([1, 0], [0, 1, 2]);").unwrap_err();
+        assert!(result.contains("2D or 3D"));
+    }
+
+    #[test]
+    fn test_builtin_norm() {
+        let env = eval_source("x = norm([3, 4]);").unwrap();
+        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Number(5.0)));
+    }
+
+    #[test]
+    fn test_builtin_unit() {
+        let env = eval_source("x = unit([3, 4]);").unwrap();
+        assert_eq!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Vector(vec![
+                crate::interpreter::Value::Number(3.0 / 5.0),
+                crate::interpreter::Value::Number(4.0 / 5.0),
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_builtin_unit_zero() {
+        let env = eval_source("x = unit([0, 0]);").unwrap();
+        assert!(matches!(env.get("x"), Some(crate::interpreter::Value::Undef)));
+    }
+
     fn unique_fixture_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
             "openscad-rust-{}-{}",

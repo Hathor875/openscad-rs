@@ -25,11 +25,11 @@ block = { "{" ~ statement* ~ "}" }
 assignment = { identifier ~ EqSign ~ expression ~ Semi }
 
 module_def = {
-    Module ~ identifier ~ "(" ~ parameters? ~ ")" ~ statement
+    Module ~ identifier ~ "(" ~ parameters? ~ ")" ~ statement ~ Semi?
 }
 
 function_def = {
-    Function ~ identifier ~ "(" ~ parameters? ~ ")" ~ EqSign ~ expression ~ Semi
+    Function ~ identifier ~ "(" ~ parameters? ~ ")" ~ EqSign ~ expression ~ Semi*
 }
 
 parameters = { parameter ~ ("," ~ parameter)* ~ ","? }
@@ -41,7 +41,7 @@ module_instantiation = {
 
 modifier = { "!" | "#" | "%" | "*" }
 
-_keyword = { "if" | "else" | "for" | "while" | "function" | "module" | "include" | "use" | "let" | "assert" | "echo" | "each" | "true" | "false" | "undef" }
+_keyword = @{ "include" | "use" | "module" | "function" | "if" | "else" | "let" | "assert" | "echo" | "for" | "each" | "true" | "false" | "undef" }
 
 module_id = {
     !( _keyword ) ~ identifier
@@ -100,8 +100,7 @@ postfix = {
 }
 
 atom = {
-    literal
-    | anonymous_function
+    anonymous_function
     | if_expr
     | let_expr
     | assert_expr
@@ -109,6 +108,7 @@ atom = {
     | for_expr
     | each_expr
     | identifier
+    | literal
     | range
     | vector
     | "(" ~ expression ~ ")"
@@ -219,13 +219,13 @@ Eot = { "\x03" }
 Nbsp = { "\u{00A0}" }
 Bom = { "\u{FEFF}" }
 
-HexNumber = { "0x" ~ hex_digit+ }
-FloatNumber = { (digit* ~ "." ~ digit+ ~ exponent?) | (digit+ ~ "." ~ digit* ~ exponent?) | (digit+ ~ exponent) }
-IntNumber = { digit+ }
+HexNumber = @{ "0x" ~ hex_digit+ }
+FloatNumber = @{ ((digit* ~ "." ~ digit+ ~ exponent?) | (digit+ ~ "." ~ digit* ~ exponent?) | (digit+ ~ exponent)) ~ !(alpha | "_" | "$") }
+IntNumber = @{ digit+ ~ !(alpha | "_" | "$") }
 exponent = { ("e" | "E") ~ ("+" | "-")? ~ digit+ }
 
-String = { "\"" ~ string_content* ~ "\"" }
-string_content = { ESCAPE_SEQUENCE | !("\"" | "\\") ~ ANY }
+String = @{ "\"" ~ string_content* ~ "\"" }
+string_content = @{ ESCAPE_SEQUENCE | !("\"" | "\\") ~ ANY }
 
 ESCAPE_SEQUENCE = { "\\" ~ ESCAPE_CHAR }
 
@@ -234,9 +234,15 @@ ESCAPE_CHAR = {
 }
 
 Ident = { IdentInner }
-IdentInner = { ident_start ~ ident_rest* }
+IdentInner = @{
+    !( _keyword ~ !ident_rest ) ~
+    ( ident_start ~ ident_rest*
+    | digit+ ~ ident_start ~ ident_rest*
+    )
+}
 ident_start = { alpha | "_" | "$" }
 ident_rest = { alphanumeric | "_" | "$" }
+
 assert_expr = { Assert ~ "(" ~ arguments? ~ ")" ~ expression? }
 echo_expr = { Echo ~ "(" ~ arguments? ~ ")" ~ expression? }
 for_expr = { For ~ "(" ~ argument ~ ("," ~ argument)* ~ ")" ~ for_let? ~ (If ~ "(" ~ expression ~ ")")? ~ expression }
