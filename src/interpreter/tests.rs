@@ -278,6 +278,29 @@ mod tests {
     }
 
     #[test]
+    fn test_imports_obj_relative_to_source() {
+        let directory = std::env::temp_dir().join(format!("openscad-rust-obj-{}", std::process::id()));
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(
+            directory.join("shape.obj"),
+            "v 0 0 0\nv 2 0 0\nv 0 2 0\nf 1/1 2/2 3/3\n",
+        ).unwrap();
+        let source = directory.join("main.scad");
+        std::fs::write(&source, "import(\"shape.obj\");").unwrap();
+
+        let parsed = Parser::parse_file(&source).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.vertices.len(), 3);
+        assert_eq!(mesh.faces.len(), 1);
+
+        std::fs::remove_file(source).unwrap();
+        std::fs::remove_file(directory.join("shape.obj")).unwrap();
+        std::fs::remove_dir(directory).unwrap();
+    }
+
+    #[test]
     fn test_sibling_primitives_are_unioned() {
         let parsed = Parser::parse("cube([1, 1, 1]); translate([2, 0, 0]) cube([1, 1, 1]);").unwrap();
         let env = Rc::new(Environment::new());

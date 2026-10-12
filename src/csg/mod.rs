@@ -153,6 +153,59 @@ impl Mesh {
             Ok(mesh)
     }
 
+    pub fn from_obj(data: &[u8]) -> Result<Self, String> {
+        let text = std::str::from_utf8(data)
+            .map_err(|_| "OBJ is not valid UTF-8".to_string())?;
+        let mut mesh = Mesh::new();
+        for line in text.lines() {
+            let mut fields = line.split_whitespace();
+            match fields.next() {
+                Some("v") => {
+                    let coordinates: Vec<_> = fields.collect();
+                    if coordinates.len() < 3 {
+                        return Err("OBJ vertex must have three coordinates".into());
+                    }
+                    mesh.vertices.push([
+                        coordinates[0].parse().map_err(|_| "invalid OBJ vertex")?,
+                        coordinates[1].parse().map_err(|_| "invalid OBJ vertex")?,
+                        coordinates[2].parse().map_err(|_| "invalid OBJ vertex")?,
+                    ]);
+                }
+                Some("f") => {
+                    let indices: Result<Vec<_>, _> = fields.map(|field| {
+                        let index = field.split('/').next().unwrap_or_default()
+                            .parse::<isize>().map_err(|_| "invalid OBJ face index")?;
+                        if index == 0 {
+                            return Err("OBJ face indices cannot be zero");
+                        }
+                        let resolved = if index < 0 {
+                            mesh.vertices.len() as isize + index
+                        } else {
+                            index - 1
+                        };
+                        if resolved < 0 || resolved >= mesh.vertices.len() as isize {
+                            return Err("OBJ face index out of range");
+                        }
+                        Ok(resolved as usize)
+                    }).collect();
+                    let indices = indices?;
+                    if indices.len() < 3 {
+                        return Err("OBJ face must have at least three vertices".into());
+                    }
+                    for index in 1..indices.len() - 1 {
+                        mesh.faces.push([indices[0], indices[index], indices[index + 1]]);
+                    }
+                }
+                _ => {}
+            }
+        }
+        if mesh.vertices.is_empty() || mesh.faces.is_empty() {
+            return Err("OBJ contains no exportable faces".into());
+        }
+        mesh.normals = vec![[0.0, 0.0, 1.0]; mesh.vertices.len()];
+        Ok(mesh)
+    }
+
     fn stl_vertex(vertices: &mut Vec<[f64; 3]>, point: [f64; 3]) -> usize {
             if let Some(index) = vertices.iter().position(|vertex| *vertex == point) {
                 index

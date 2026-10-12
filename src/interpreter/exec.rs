@@ -738,7 +738,13 @@ impl Executor {
                 let resolved = self.resolve_source_path(&file)?;
                 let data = std::fs::read(&resolved)
                     .map_err(|error| format!("Failed to read '{}': {}", resolved.display(), error))?;
-                let imported = crate::csg::Mesh::from_stl(&data)
+                let imported = if resolved.extension().and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("obj"))
+                {
+                    crate::csg::Mesh::from_obj(&data)
+                } else {
+                    crate::csg::Mesh::from_stl(&data)
+                }
                     .map_err(|error| format!("Failed to import '{}': {}", resolved.display(), error))?;
                 let faces = imported.faces.iter().map(|face| face.to_vec()).collect();
                 self.current_builder().add_primitive(Primitive::Polyhedron {
