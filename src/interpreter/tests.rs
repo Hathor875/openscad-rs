@@ -620,6 +620,20 @@ mod tests {
     }
 
     #[test]
+    fn test_rotate_extrude_accepts_positional_angle() {
+        let parsed = Parser::parse(
+            "rotate_extrude(180, $fn = 8) square([1, 1]);",
+        ).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        let max_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::NEG_INFINITY, f64::max);
+        let min_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::INFINITY, f64::min);
+        assert!(max_x > 0.9);
+        assert!(min_x < -0.9);
+    }
+
+    #[test]
     fn test_include_loads_relative_assignments() {
         let dir = unique_fixture_dir("include");
         fs::create_dir_all(&dir).unwrap();

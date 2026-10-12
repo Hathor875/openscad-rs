@@ -884,7 +884,9 @@ impl Executor {
                 Ok(Some(()))
             }
             "rotate_extrude" => {
-                let angle = self.get_arg(arguments, "angle")?.unwrap_or(360.0);
+                let angle = self.get_arg(arguments, "angle")?
+                    .or(self.get_positional_arg(arguments, 0)?)
+                    .unwrap_or(360.0);
                 if angle <= 0.0 || angle > 360.0 {
                     return Err("rotate_extrude angle must be greater than zero and at most 360".into());
                 }
