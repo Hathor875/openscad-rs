@@ -45,16 +45,24 @@ fn run(args: Vec<String>) -> Result<(), String> {
         let Some(mesh) = exec.build_mesh() else {
             return Err("model produced no geometry".into());
         };
-        fs::write(output, mesh.to_stl())
+        let format = output.rsplit('.').next().unwrap_or_default().to_ascii_lowercase();
+        let contents = match format.as_str() {
+            "stl" => mesh.to_stl(),
+            "obj" => mesh.to_obj(),
+            _ => return Err(format!(
+                "unsupported output format '.{format}'; use .stl or .obj"
+            )),
+        };
+        fs::write(output, contents)
             .map_err(|error| format!("failed to write '{output}': {error}"))?;
     }
     Ok(())
 }
 
 fn print_usage() {
-    println!("Usage: openscad-rust <file.scad> [-o|--output <file.stl>]");
+    println!("Usage: openscad-rust <file.scad> [-o|--output <file.stl|file.obj>]");
 }
 
 fn usage_error(message: &str) -> String {
-    format!("{message}\n\nUsage: openscad-rust <file.scad> [-o|--output <file.stl>]")
+    format!("{message}\n\nUsage: openscad-rust <file.scad> [-o|--output <file.stl|file.obj>]")
 }
