@@ -341,7 +341,7 @@ impl Evaluator {
             name: "anonymous".to_string(),
             params,
             body: body.clone(),
-            captures: (*self.env).clone(),
+            captures: self.env.clone(),
         };
         
         Ok(Value::Function(func))

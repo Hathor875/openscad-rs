@@ -1169,7 +1169,7 @@ impl Executor {
             name: name.to_string(),
             params,
             body: body.to_vec(),
-            captures: (*self.env).clone(),
+            captures: self.env.clone(),
             modifiers: ModuleModifiers::default(),
         };
         
@@ -1191,7 +1191,7 @@ impl Executor {
             name: name.to_string(),
             params,
             body: body.clone(),
-            captures: (*self.env).clone(),
+            captures: self.env.clone(),
         };
         
         self.env.define(name.to_string(), Value::Function(func));

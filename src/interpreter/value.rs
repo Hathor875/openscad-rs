@@ -20,7 +20,7 @@ pub struct FunctionValue {
     pub name: String,
     pub params: Vec<(String, Option<Expression>)>,
     pub body: Expression,
-    pub captures: Environment,
+    pub captures: Rc<Environment>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -28,7 +28,7 @@ pub struct ModuleValue {
     pub name: String,
     pub params: Vec<(String, Option<Expression>)>,
     pub body: Vec<Statement>,
-    pub captures: Environment,
+    pub captures: Rc<Environment>,
     pub modifiers: ModuleModifiers,
 }
 

@@ -101,6 +101,8 @@ postfix = {
 
 atom = {
     literal
+    | anonymous_function
+    | if_expr
     | let_expr
     | assert_expr
     | echo_expr
@@ -111,6 +113,9 @@ atom = {
     | vector
     | "(" ~ expression ~ ")"
 }
+
+anonymous_function = { Function ~ "(" ~ parameters? ~ ")" ~ expression }
+if_expr = { If ~ "(" ~ expression ~ ")" ~ expression ~ Else ~ expression }
 
 let_expr = { Let ~ "(" ~ let_bindings ~ ")" ~ expression }
 
@@ -234,5 +239,6 @@ ident_start = { alpha | "_" | "$" }
 ident_rest = { alphanumeric | "_" | "$" }
 assert_expr = { Assert ~ "(" ~ arguments? ~ ")" ~ expression? }
 echo_expr = { Echo ~ "(" ~ arguments? ~ ")" ~ expression? }
-for_expr = { For ~ "(" ~ argument ~ ("," ~ argument)* ~ ")" ~ (If ~ "(" ~ expression ~ ")")? ~ expression }
+for_expr = { For ~ "(" ~ argument ~ ("," ~ argument)* ~ ")" ~ for_let? ~ (If ~ "(" ~ expression ~ ")")? ~ expression }
+for_let = { Let ~ "(" ~ let_bindings ~ ")" }
 each_expr = { Each ~ expression }

@@ -76,6 +76,12 @@ mod tests {
     }
 
     #[test]
+    fn test_anonymous_function_value() {
+        let env = eval_source("add = function(x) x + 1; y = add(2);").unwrap();
+        assert_eq!(env.get("y"), Some(crate::interpreter::Value::Number(3.0)));
+    }
+
+    #[test]
     fn test_eval_module() {
         let input = "module foo() { cube(10); }";
         assert!(eval_source(input).is_ok());

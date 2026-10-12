@@ -602,6 +602,8 @@ impl Parser {
             // eprintln!("DEBUG parse_atom: inner rule = {:?}, text = {:?}", inner.as_rule(), inner.as_str());
             match inner.as_rule() {
                 Rule::let_expr => return Self::parse_let_expr(inner),
+                Rule::anonymous_function => return Self::parse_anonymous_function(inner),
+                Rule::if_expr => return Self::parse_if_expression(inner),
                 Rule::assert_expr => return Self::parse_assert_expr(inner),
                 Rule::for_expr => return Self::parse_for_expr(inner),
                 Rule::each_expr => return Self::parse_each_expr(inner),
@@ -610,6 +612,48 @@ impl Parser {
             }
         }
         Ok(Expression::Literal(LiteralValue::Undefined, Span::default()))
+    }
+
+    fn parse_if_expression(pair: Pair<Rule>) -> Result<Expression> {
+        let span = Self::pest_span_to_span(pair.as_span());
+        let expressions = pair.into_inner()
+            .filter(|inner| inner.as_rule() == Rule::expression)
+            .map(Self::parse_expression)
+            .collect::<Result<Vec<_>>>()?;
+        if let [condition, then_expr, else_expr] = expressions.as_slice() {
+            Ok(Expression::TernaryOp(
+                Box::new(condition.clone()),
+                Box::new(then_expr.clone()),
+                Box::new(else_expr.clone()),
+                span,
+            ))
+        } else {
+            Err(anyhow::anyhow!("if expression requires then and else branches"))
+        }
+    }
+
+    fn parse_anonymous_function(pair: Pair<Rule>) -> Result<Expression> {
+        let span = Self::pest_span_to_span(pair.as_span());
+        let mut params = Vec::new();
+        let mut body = None;
+        for inner in pair.into_inner() {
+            match inner.as_rule() {
+                Rule::parameters => {
+                    for parameter in inner.into_inner() {
+                        if let Rule::parameter = parameter.as_rule() {
+                            params.push(Self::parse_parameter(parameter)?);
+                        }
+                    }
+                }
+                Rule::expression => body = Some(Self::parse_expression(inner)?),
+                _ => {}
+            }
+        }
+        Ok(Expression::FunctionDef {
+            params,
+            body: Box::new(body.ok_or_else(|| anyhow::anyhow!("Missing anonymous function body"))?),
+            span,
+        })
     }
     
     fn parse_let_expr(pair: Pair<Rule>) -> Result<Expression> {
@@ -789,11 +833,32 @@ impl Parser {
     fn parse_for_expr(pair: Pair<Rule>) -> Result<Expression> {
         let mut args = Vec::new();
         let mut expressions = Vec::new();
+        let mut let_args = Vec::new();
         let span = Self::pest_span_to_span(pair.as_span());
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::argument => {
                     args.push(Self::parse_argument(inner)?);
+                }
+                Rule::for_let => {
+                    for binding in inner.into_inner() {
+                        if let Rule::let_bindings = binding.as_rule() {
+                            for binding in binding.into_inner() {
+                                if let Rule::let_binding = binding.as_rule() {
+                                    let mut name = String::new();
+                                    let mut value = None;
+                                    for item in binding.into_inner() {
+                                        match item.as_rule() {
+                                            Rule::identifier => name = item.as_str().to_string(),
+                                            Rule::expression => value = Some(Self::parse_expression(item)?),
+                                            _ => {}
+                                        }
+                                    }
+                                    let_args.push(Assignment::new(name, value, Span::default()));
+                                }
+                            }
+                        }
+                    }
                 }
                 Rule::expression => {
                     expressions.push(Self::parse_expression(inner)?);
@@ -801,11 +866,18 @@ impl Parser {
                 _ => {}
             }
         }
-        let (condition, body) = match expressions.as_slice() {
+        let (condition, mut body) = match expressions.as_slice() {
             [body] => (None, body.clone()),
             [condition, body] => (Some(Box::new(condition.clone())), body.clone()),
             _ => return Err(anyhow::anyhow!("Missing for body")),
         };
+        if !let_args.is_empty() {
+            body = Expression::Let {
+                args: let_args,
+                body: Box::new(body),
+                span,
+            };
+        }
         Ok(Expression::For {
             args,
             condition,
