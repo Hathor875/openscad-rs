@@ -159,6 +159,14 @@ mod tests {
     }
 
     #[test]
+    fn test_if_expression_without_else_filters_undef() {
+        let env = eval_source("x = [if (false) 1, if (true) 2];").unwrap();
+        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![
+            crate::interpreter::Value::Number(2.0),
+        ])));
+    }
+
+    #[test]
     fn test_nested_for_expression() {
         let env = eval_source("x = [for (i = [1:2], j = [10:11]) i + j];").unwrap();
         assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![

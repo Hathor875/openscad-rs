@@ -627,8 +627,15 @@ impl Parser {
                 Box::new(else_expr.clone()),
                 span,
             ))
+        } else if let [condition, then_expr] = expressions.as_slice() {
+            Ok(Expression::TernaryOp(
+                Box::new(condition.clone()),
+                Box::new(then_expr.clone()),
+                Box::new(Expression::Literal(LiteralValue::Undefined, span)),
+                span,
+            ))
         } else {
-            Err(anyhow::anyhow!("if expression requires then and else branches"))
+            Err(anyhow::anyhow!("if expression requires a condition and value"))
         }
     }
 

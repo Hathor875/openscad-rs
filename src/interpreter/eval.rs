@@ -143,11 +143,13 @@ impl Evaluator {
             let value = self.eval(e)?;
             if matches!(e, Expression::For { .. } | Expression::Each { .. }) {
                 if let Value::Vector(items) = value {
-                    values.extend(items);
+                    values.extend(items.into_iter().filter(|item| !item.is_undef()));
                     continue;
                 }
             }
-            values.push(value);
+            if !value.is_undef() {
+                values.push(value);
+            }
         }
         Ok(Value::Vector(values))
     }
