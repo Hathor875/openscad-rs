@@ -362,6 +362,34 @@ mod tests {
     }
 
     #[test]
+    fn test_hull_contains_all_child_geometry() {
+        let mesh = crate::csg::CsgNode::Hull {
+            children: vec![
+                crate::csg::CsgNode::Primitive(crate::csg::Primitive::Cube {
+                    size: [1.0, 1.0, 1.0],
+                    center: false,
+                }),
+                crate::csg::CsgNode::Transform {
+                    child: Box::new(crate::csg::CsgNode::Primitive(crate::csg::Primitive::Cube {
+                        size: [1.0, 1.0, 1.0],
+                        center: false,
+                    })),
+                    translate: Some([3.0, 0.0, 0.0]),
+                    rotate: None,
+                    scale: None,
+                    mirror: None,
+                    matrix: None,
+                },
+            ],
+        }.to_mesh();
+        let min_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::INFINITY, f64::min);
+        let max_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::NEG_INFINITY, f64::max);
+        assert_eq!(min_x, 0.0);
+        assert_eq!(max_x, 4.0);
+        assert!(!mesh.faces.is_empty());
+    }
+
+    #[test]
     fn test_linear_extrude_builds_solid_mesh() {
         let input = "linear_extrude(height = 3) polygon(points = [[0,0], [2,0], [2,1], [0,1]]);";
         let parsed = Parser::parse(input).unwrap();

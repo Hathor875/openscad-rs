@@ -269,6 +269,54 @@ impl Mesh {
             normals: vec![[0.0, 0.0, 1.0]; seg + 1],
         }
     }
+
+    pub fn convex_hull(points: &[[f64; 3]]) -> Self {
+        let mut mesh = Mesh {
+            vertices: points.to_vec(),
+            faces: Vec::new(),
+            normals: vec![[0.0, 0.0, 1.0]; points.len()],
+        };
+        let epsilon = 1e-9;
+        for i in 0..points.len() {
+            for j in (i + 1)..points.len() {
+                for k in (j + 1)..points.len() {
+                    let a = points[i];
+                    let b = points[j];
+                    let c = points[k];
+                    let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+                    let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+                    let normal = [
+                        ab[1] * ac[2] - ab[2] * ac[1],
+                        ab[2] * ac[0] - ab[0] * ac[2],
+                        ab[0] * ac[1] - ab[1] * ac[0],
+                    ];
+                    if normal.iter().map(|value| value * value).sum::<f64>() <= epsilon {
+                        continue;
+                    }
+                    let mut positive = false;
+                    let mut negative = false;
+                    for (index, point) in points.iter().enumerate() {
+                        if index == i || index == j || index == k {
+                            continue;
+                        }
+                        let distance = normal[0] * (point[0] - a[0])
+                            + normal[1] * (point[1] - a[1])
+                            + normal[2] * (point[2] - a[2]);
+                        positive |= distance > epsilon;
+                        negative |= distance < -epsilon;
+                    }
+                    if positive && negative {
+                        continue;
+                    }
+                    let face = if positive { [i, k, j] } else { [i, j, k] };
+                    if !mesh.faces.contains(&face) {
+                        mesh.faces.push(face);
+                    }
+                }
+            }
+        }
+        mesh
+    }
     
     pub fn cylinder(h: f64, r1: f64, r2: f64, segments: usize, center: bool) -> Self {
         let mut mesh = Mesh::new();
@@ -822,7 +870,13 @@ impl CsgNode {
                     BooleanOp::Intersection => left.intersection(&right),
                 }
             }
-            CsgNode::Hull { children } | CsgNode::Minkowski { children } => {
+            CsgNode::Hull { children } => {
+                let points = children.iter()
+                    .flat_map(|child| child.to_mesh().vertices)
+                    .collect::<Vec<_>>();
+                Mesh::convex_hull(&points)
+            }
+            CsgNode::Minkowski { children } => {
                 children.first().map(CsgNode::to_mesh).unwrap_or_else(Mesh::new)
             }
             CsgNode::Color { child, .. } => child.to_mesh(),
