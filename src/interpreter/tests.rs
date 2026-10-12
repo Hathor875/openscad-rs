@@ -173,6 +173,17 @@ mod tests {
     }
 
     #[test]
+    fn test_polyhedron_builds_mesh() {
+        let input = "polyhedron(points = [[0,0,0], [1,0,0], [0,1,0], [0,0,1]], faces = [[0,2,1], [0,1,3], [0,3,2], [1,2,3]]);";
+        let parsed = Parser::parse(input).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.vertices.len(), 4);
+        assert_eq!(mesh.faces.len(), 4);
+    }
+
+    #[test]
     fn test_include_loads_relative_assignments() {
         let dir = unique_fixture_dir("include");
         fs::create_dir_all(&dir).unwrap();

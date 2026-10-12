@@ -177,11 +177,67 @@ impl Executor {
         if values.len() != 3 {
             return Err("transformation vector must contain three values".into());
         }
+
         Ok(Some([
             values[0].as_number()?,
             values[1].as_number()?,
             values[2].as_number()?,
         ]))
+    }
+
+    fn get_vector(&mut self, arguments: &[Assignment], name: &str) -> Result<Option<Value>, String> {
+        let argument = arguments.iter().find(|argument| {
+            argument.name == name || argument.name.strip_prefix('$') == Some(name)
+        }).or_else(|| {
+            if matches!(name, "size" | "points" | "faces") {
+                arguments.iter().find(|argument| argument.name.is_empty())
+            } else {
+                None
+            }
+        });
+        let Some(argument) = argument else {
+            return Ok(None);
+        };
+        argument.value.as_ref()
+            .map(|expression| self.eval_expr(expression))
+            .transpose()
+    }
+
+    fn value_points(value: Value) -> Result<Vec<[f64; 3]>, String> {
+        let Value::Vector(points) = value else {
+            return Err("polyhedron points must be a vector".into());
+        };
+        points.into_iter().map(|point| {
+            let Value::Vector(values) = point else {
+                return Err("each polyhedron point must be a vector".into());
+            };
+            if values.len() != 3 {
+                return Err("each polyhedron point must contain three values".into());
+            }
+            Ok([values[0].as_number()?, values[1].as_number()?, values[2].as_number()?])
+        }).collect()
+    }
+
+    fn value_faces(value: Value, point_count: usize) -> Result<Vec<Vec<usize>>, String> {
+        let Value::Vector(faces) = value else {
+            return Err("polyhedron faces must be a vector".into());
+        };
+        faces.into_iter().map(|face| {
+            let Value::Vector(indices) = face else {
+                return Err("each polyhedron face must be a vector".into());
+            };
+            let indices = indices.into_iter().map(|index| {
+                let index = index.as_number()?;
+                if index < 0.0 || index.fract() != 0.0 || index as usize >= point_count {
+                    return Err("polyhedron face index is out of bounds".into());
+                }
+                Ok(index as usize)
+            }).collect::<Result<Vec<_>, String>>()?;
+            if indices.len() < 3 {
+                return Err("polyhedron faces need at least three points".into());
+            }
+            Ok(indices)
+        }).collect()
     }
     
     fn exec_module_inst(
@@ -270,8 +326,16 @@ impl Executor {
         match name {
             // Primitive shapes - add to current builder
             "cube" => {
-                let size = if let Some(s) = self.get_arg(arguments, "size")? {
-                    [s; 3]
+                let size = if let Some(value) = self.get_vector(arguments, "size")? {
+                    match value {
+                        Value::Number(s) => [s; 3],
+                        Value::Vector(values) if values.len() == 3 => [
+                            values[0].as_number()?,
+                            values[1].as_number()?,
+                            values[2].as_number()?,
+                        ],
+                        _ => return Err("cube size must be a number or a three-element vector".into()),
+                    }
                 } else {
                     [
                         self.get_arg(arguments, "x")?.unwrap_or(1.0),
@@ -339,8 +403,13 @@ impl Executor {
                 Ok(Some(()))
             }
             "polyhedron" => {
-                // For now, just add a placeholder mesh
-                self.current_builder().add_primitive(Primitive::Polyhedron { points: vec![], faces: vec![] });
+                let points = self.get_vector(arguments, "points")?
+                    .ok_or_else(|| "polyhedron requires points".to_string())
+                    .and_then(Self::value_points)?;
+                let faces = self.get_vector(arguments, "faces")?
+                    .ok_or_else(|| "polyhedron requires faces".to_string())
+                    .and_then(|value| Self::value_faces(value, points.len()))?;
+                self.current_builder().add_primitive(Primitive::Polyhedron { points, faces });
                 Ok(Some(()))
             }
             // Transformations - wrap children in new CSG context

@@ -329,6 +329,22 @@ impl Primitive {
                 let seg = fn_.unwrap_or(16).max(3);
                 Mesh::sphere(*r, seg)
             }
+            Primitive::Polyhedron { points, faces } => {
+                let mut mesh = Mesh {
+                    vertices: points.clone(),
+                    faces: Vec::new(),
+                    normals: vec![[0.0, 0.0, 1.0]; points.len()],
+                };
+                for face in faces {
+                    if face.len() < 3 {
+                        continue;
+                    }
+                    for index in 1..face.len() - 1 {
+                        mesh.faces.push([face[0], face[index], face[index + 1]]);
+                    }
+                }
+                mesh
+            }
             _ => Mesh::new(),
         }
     }
