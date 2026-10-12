@@ -52,6 +52,13 @@ impl Builtins {
         functions.insert("is_num".to_string(), builtin_is_num as BuiltinFn);
         functions.insert("is_string".to_string(), builtin_is_string as BuiltinFn);
         functions.insert("is_list".to_string(), builtin_is_list as BuiltinFn);
+        functions.insert("is_vector".to_string(), builtin_is_list as BuiltinFn);
+        functions.insert("is_num".to_string(), builtin_is_num as BuiltinFn);
+        functions.insert("is_int".to_string(), builtin_is_int as BuiltinFn);
+        functions.insert("is_finite".to_string(), builtin_is_finite as BuiltinFn);
+        functions.insert("is_nan".to_string(), builtin_is_nan as BuiltinFn);
+        functions.insert("is_def".to_string(), builtin_is_def as BuiltinFn);
+        functions.insert("last".to_string(), builtin_last as BuiltinFn);
         
         Self { functions }
     }
@@ -302,4 +309,32 @@ fn builtin_is_string(args: Vec<Value>) -> Result<Value, String> {
 fn builtin_is_list(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 { return Err("is_list expects 1 argument".into()); }
     Ok(Value::Bool(matches!(args[0], Value::Vector(_))))
+}
+
+fn builtin_is_int(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 { return Err("is_int expects 1 argument".into()); }
+    Ok(Value::Bool(matches!(args[0], Value::Number(n) if n.is_finite() && n.fract() == 0.0)))
+}
+
+fn builtin_is_finite(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 { return Err("is_finite expects 1 argument".into()); }
+    Ok(Value::Bool(matches!(args[0], Value::Number(n) if n.is_finite())))
+}
+
+fn builtin_is_nan(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 { return Err("is_nan expects 1 argument".into()); }
+    Ok(Value::Bool(matches!(args[0], Value::Number(n) if n.is_nan())))
+}
+
+fn builtin_is_def(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 { return Err("is_def expects 1 argument".into()); }
+    Ok(Value::Bool(!args[0].is_undef()))
+}
+
+fn builtin_last(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 { return Err("last expects 1 argument".into()); }
+    match &args[0] {
+        Value::Vector(values) => values.last().cloned().ok_or_else(|| "last expects a non-empty list".into()),
+        _ => Err("last expects a list".into()),
+    }
 }

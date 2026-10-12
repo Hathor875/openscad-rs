@@ -45,6 +45,21 @@ mod tests {
     }
 
     #[test]
+    fn test_bosll2_type_and_list_builtins() {
+        let env = eval_source(
+            "a = [is_def(undef), is_int(2), is_finite(2), is_nan(0), is_vector([1]), last([3,4])];",
+        ).unwrap();
+        assert_eq!(env.get("a"), Some(crate::interpreter::Value::Vector(vec![
+            crate::interpreter::Value::Bool(false),
+            crate::interpreter::Value::Bool(true),
+            crate::interpreter::Value::Bool(true),
+            crate::interpreter::Value::Bool(false),
+            crate::interpreter::Value::Bool(true),
+            crate::interpreter::Value::Number(4.0),
+        ])));
+    }
+
+    #[test]
     fn test_eval_vector() {
         let input = "x = [1, 2, 3];";
         let env = eval_source(input).unwrap();
