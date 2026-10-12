@@ -204,6 +204,26 @@ mod tests {
     }
 
     #[test]
+    fn test_sphere_has_no_degenerate_faces() {
+        let parsed = Parser::parse("sphere(r = 2, $fn = 8);").unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.vertices.len(), 58);
+        assert_eq!(mesh.faces.len(), 112);
+        assert!(mesh.faces.iter().all(|face| {
+            let a = mesh.vertices[face[0]];
+            let b = mesh.vertices[face[1]];
+            let c = mesh.vertices[face[2]];
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            (ab[0] * ac[1] - ab[1] * ac[0]).abs()
+                + (ab[1] * ac[2] - ab[2] * ac[1]).abs()
+                + (ab[2] * ac[0] - ab[0] * ac[2]).abs() > 1e-9
+        }));
+    }
+
+    #[test]
     fn test_2d_primitives_can_be_extruded() {
         let parsed = Parser::parse("linear_extrude(height = 2) circle(r = 1, $fn = 8);").unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));

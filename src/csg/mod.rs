@@ -199,40 +199,42 @@ impl Mesh {
     pub fn sphere(radius: f64, segments: usize) -> Self {
         let mut mesh = Mesh::new();
         let seg = segments.max(3);
-        
-        // Generate icosphere or UV sphere
-        for i in 0..=seg {
+
+        mesh.vertices.push([0.0, 0.0, radius]);
+        for i in 1..seg {
             let lat = std::f64::consts::PI * i as f64 / seg as f64;
-            let sin_lat = lat.sin();
-            let cos_lat = lat.cos();
-            
+            let (sin_lat, cos_lat) = lat.sin_cos();
             for j in 0..seg {
-                let lon = 2.0 * std::f64::consts::PI * j as f64 / seg as f64;
-                let sin_lon = lon.sin();
-                let cos_lon = lon.cos();
-                
-                let x = radius * sin_lat * cos_lon;
-                let y = radius * sin_lat * sin_lon;
-                let z = radius * cos_lat;
-                
-                mesh.vertices.push([x, y, z]);
+                let (sin_lon, cos_lon) =
+                    (2.0 * std::f64::consts::PI * j as f64 / seg as f64).sin_cos();
+                mesh.vertices.push([
+                    radius * sin_lat * cos_lon,
+                    radius * sin_lat * sin_lon,
+                    radius * cos_lat,
+                ]);
             }
         }
-        
-        // Generate faces (simplified - just pole caps)
-        // This is a very simplified version
-        for i in 0..seg-1 {
+
+        let south = mesh.vertices.len();
+        mesh.vertices.push([0.0, 0.0, -radius]);
+        for j in 0..seg {
+            let next = (j + 1) % seg;
+            mesh.faces.push([0, 1 + next, 1 + j]);
+        }
+        for ring in 0..seg - 2 {
+            let current = 1 + ring * seg;
+            let next_ring = current + seg;
             for j in 0..seg {
-                let a = i * seg + j;
-                let b = i * seg + (j + 1) % seg;
-                let c = (i + 1) * seg + j;
-                let d = (i + 1) * seg + (j + 1) % seg;
-                
-                mesh.faces.push([a, b, d]);
-                mesh.faces.push([a, d, c]);
+                let next = (j + 1) % seg;
+                mesh.faces.push([current + j, current + next, next_ring + next]);
+                mesh.faces.push([current + j, next_ring + next, next_ring + j]);
             }
         }
-        
+        let last_ring = 1 + (seg - 2) * seg;
+        for j in 0..seg {
+            let next = (j + 1) % seg;
+            mesh.faces.push([last_ring + j, last_ring + next, south]);
+        }
         mesh.normals = vec![[0.0, 0.0, 1.0]; mesh.vertices.len()];
         mesh
     }
