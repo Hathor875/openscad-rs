@@ -656,9 +656,6 @@ impl Executor {
                 } else {
                     vec![(0..points.len()).collect()]
                 };
-                if paths.len() > 1 {
-                    return Err("polygon holes are not supported yet".into());
-                }
                 Self::validate_polygon_paths(&points, &paths)?;
                 self.current_builder().add_primitive(Primitive::Polygon { points, paths });
                 Ok(Some(()))

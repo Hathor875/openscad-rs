@@ -330,13 +330,33 @@ mod tests {
     }
 
     #[test]
-    fn test_polygon_holes_report_unsupported_geometry() {
+    fn test_polygon_holes_are_triangulated() {
         let parsed = Parser::parse(
             "polygon(points = [[0,0], [4,0], [4,4], [0,4], [1,1], [1,2], [2,2], [2,1]], paths = [[0,1,2,3], [4,5,6,7]]);",
         ).unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));
-        let error = exec.execute_source(&parsed).unwrap_err();
-        assert!(error.contains("holes are not supported"));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.faces.len(), 8);
+        let area = mesh.faces.iter().map(|face| {
+            let a = mesh.vertices[face[0]];
+            let b = mesh.vertices[face[1]];
+            let c = mesh.vertices[face[2]];
+            ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs() / 2.0
+        }).sum::<f64>();
+        assert!((area - 15.0).abs() < 1e-9, "triangulated area was {area}");
+        let hole_center = [1.5, 1.5];
+        assert!(!mesh.faces.iter().any(|face| {
+            let a = mesh.vertices[face[0]];
+            let b = mesh.vertices[face[1]];
+            let c = mesh.vertices[face[2]];
+            let area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+            area.abs() > 0.0
+                && hole_center[0] >= a[0].min(b[0]).min(c[0])
+                && hole_center[0] <= a[0].max(b[0]).max(c[0])
+                && hole_center[1] >= a[1].min(b[1]).min(c[1])
+                && hole_center[1] <= a[1].max(b[1]).max(c[1])
+        }));
     }
 
     #[test]

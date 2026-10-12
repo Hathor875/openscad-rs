@@ -684,6 +684,104 @@ impl Primitive {
         triangles
     }
 
+    fn polygon_area(points: &[[f64; 2]], path: &[usize]) -> f64 {
+        path.iter().enumerate().map(|(index, &current)| {
+            let next = path[(index + 1) % path.len()];
+            points[current][0] * points[next][1] - points[next][0] * points[current][1]
+        }).sum::<f64>() / 2.0
+    }
+
+    fn point_in_polygon(point: [f64; 2], points: &[[f64; 2]], path: &[usize]) -> bool {
+        let mut inside = false;
+        for index in 0..path.len() {
+            let a = points[path[index]];
+            let b = points[path[(index + 1) % path.len()]];
+            if (a[1] > point[1]) != (b[1] > point[1])
+                && point[0] < (b[0] - a[0]) * (point[1] - a[1]) / (b[1] - a[1]) + a[0]
+            {
+                inside = !inside;
+            }
+        }
+        inside
+    }
+
+    fn segments_cross(a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]) -> bool {
+        fn orientation(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> f64 {
+            (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+        }
+        let ab_c = orientation(a, b, c);
+        let ab_d = orientation(a, b, d);
+        let cd_a = orientation(c, d, a);
+        let cd_b = orientation(c, d, b);
+        (ab_c > 0.0 && ab_d < 0.0 || ab_c < 0.0 && ab_d > 0.0)
+            && (cd_a > 0.0 && cd_b < 0.0 || cd_a < 0.0 && cd_b > 0.0)
+    }
+
+    fn triangulate_polygon_paths(points: &[[f64; 2]], paths: &[Vec<usize>]) -> (Vec<[f64; 2]>, Vec<[usize; 3]>) {
+        if paths.len() <= 1 {
+            return (points.to_vec(), Self::triangulate_polygon(points, &paths[0]));
+        }
+
+        let outer = &paths[0];
+        let mut merged = outer.clone();
+
+        for hole in &paths[1..] {
+            let hole_index = hole.iter().enumerate()
+                .max_by(|(_, &a), (_, &b)| points[a][0].total_cmp(&points[b][0])
+                    .then_with(|| points[b][1].total_cmp(&points[a][1])))
+                .map(|(index, _)| index)
+                .unwrap();
+            let hole_vertex = points[hole[hole_index]];
+            let outer_index = outer.iter().enumerate()
+                .filter(|(_, &index)| {
+                    let candidate = points[index];
+                    if !Self::point_in_polygon(candidate, points, outer) {
+                        return false;
+                    }
+                    for edge in 0..outer.len() {
+                        let a = points[outer[edge]];
+                        let b = points[outer[(edge + 1) % outer.len()]];
+                        if candidate != a && candidate != b && Self::segments_cross(hole_vertex, candidate, a, b) {
+                            return false;
+                        }
+                    }
+                    true
+                })
+                .min_by(|(_, &a), (_, &b)| {
+                    let distance = |index: usize| {
+                        let delta = [points[index][0] - hole_vertex[0], points[index][1] - hole_vertex[1]];
+                        delta[0] * delta[0] + delta[1] * delta[1]
+                    };
+                    distance(a).total_cmp(&distance(b))
+                })
+                .map(|(index, _)| index)
+                .unwrap_or_else(|| outer.iter().enumerate()
+                    .min_by(|(_, &a), (_, &b)| {
+                        let distance = |index: usize| {
+                            let delta = [points[index][0] - hole_vertex[0], points[index][1] - hole_vertex[1]];
+                            delta[0] * delta[0] + delta[1] * delta[1]
+                        };
+                        distance(a).total_cmp(&distance(b))
+                    }).map(|(index, _)| index).unwrap());
+
+            let position = merged.iter().position(|&index| index == outer[outer_index]).unwrap();
+            let mut bridge = Vec::with_capacity(hole.len() + 2);
+            bridge.extend(hole[hole_index..].iter().copied());
+            bridge.extend(hole[..hole_index].iter().copied());
+            bridge.push(hole[hole_index]);
+            bridge.push(outer[outer_index]);
+            merged.splice(position + 1..position + 1, bridge);
+        }
+
+        if Self::polygon_area(points, outer) < 0.0 {
+            merged.reverse();
+        }
+        let merged_points: Vec<[f64; 2]> = merged.iter().map(|&index| points[index]).collect();
+        let merged_path: Vec<usize> = (0..merged_points.len()).collect();
+        let faces = Self::triangulate_polygon(&merged_points, &merged_path);
+        (merged_points, faces)
+    }
+
     fn point_in_triangle(point: [f64; 2], a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> bool {
         let sign = |p1: [f64; 2], p2: [f64; 2], p3: [f64; 2]| {
             (p1[0] - p3[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p3[1])
@@ -693,7 +791,8 @@ impl Primitive {
         let d3 = sign(point, c, a);
         let has_negative = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
         let has_positive = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
-        !(has_negative && has_positive)
+        !(has_negative && has_positive) && d1.abs() > f64::EPSILON
+            && d2.abs() > f64::EPSILON && d3.abs() > f64::EPSILON
     }
 
     fn radial_segments(
@@ -747,14 +846,12 @@ impl Primitive {
                 mesh
             }
             Primitive::Polygon { points, paths } => {
-                let mut mesh = Mesh {
-                    vertices: points.iter().map(|point| [point[0], point[1], 0.0]).collect(),
-                    faces: Vec::new(),
-                    normals: vec![[0.0, 0.0, 1.0]; points.len()],
+                let (polygon_points, faces) = Self::triangulate_polygon_paths(points, paths);
+                let mesh = Mesh {
+                    vertices: polygon_points.iter().map(|point| [point[0], point[1], 0.0]).collect(),
+                    faces,
+                    normals: vec![[0.0, 0.0, 1.0]; polygon_points.len()],
                 };
-                for path in paths {
-                    mesh.faces.extend(Self::triangulate_polygon(points, path));
-                }
                 mesh
             }
             _ => Mesh::new(),
