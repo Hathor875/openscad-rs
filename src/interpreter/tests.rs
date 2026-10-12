@@ -200,6 +200,23 @@ mod tests {
     }
 
     #[test]
+    fn test_fa_and_fs_control_radial_resolution() {
+        let parsed = Parser::parse("circle(r = 2, $fa = 90);").unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.vertices.len(), 5);
+        assert_eq!(mesh.faces.len(), 4);
+
+        let parsed = Parser::parse("cylinder(h = 1, r = 2, $fs = 1);").unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.vertices.len(), 28);
+        assert_eq!(mesh.faces.len(), 52);
+    }
+
+    #[test]
     fn test_sibling_primitives_are_unioned() {
         let parsed = Parser::parse("cube([1, 1, 1]); translate([2, 0, 0]) cube([1, 1, 1]);").unwrap();
         let env = Rc::new(Environment::new());

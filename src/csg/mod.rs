@@ -417,20 +417,36 @@ impl Mesh {
 }
 
 impl Primitive {
+    fn radial_segments(
+        radius: f64,
+        fn_: Option<usize>,
+        fa: Option<f64>,
+        fs: Option<f64>,
+    ) -> usize {
+        if let Some(segments) = fn_ {
+            return segments.max(3);
+        }
+        let by_angle = fa.filter(|value| *value > 0.0)
+            .map(|value| (360.0 / value).ceil() as usize);
+        let by_size = fs.filter(|value| *value > 0.0)
+            .map(|value| (2.0 * std::f64::consts::PI * radius / value).ceil() as usize);
+        by_angle.or(by_size).unwrap_or(16).max(3)
+    }
+
     pub fn to_mesh(&self) -> Mesh {
         match self {
             Primitive::Cube { size, center } => Mesh::cube(*size, *center),
-            Primitive::Sphere { r, fn_, .. } => {
-                let seg = fn_.unwrap_or(16).max(3);
+            Primitive::Sphere { r, fn_, fa, fs, .. } => {
+                let seg = Self::radial_segments(*r, *fn_, *fa, *fs);
                 Mesh::sphere(*r, seg)
             }
-            Primitive::Cylinder { h, r1, r2, center, fn_, .. } => {
-                let seg = fn_.unwrap_or(16).max(3);
+            Primitive::Cylinder { h, r1, r2, center, fn_, fa, fs, .. } => {
+                let seg = Self::radial_segments((*r1).max(*r2), *fn_, *fa, *fs);
                 Mesh::cylinder(*h, *r1, *r2, seg, *center)
             }
             Primitive::Square { size, center } => Mesh::square(*size, *center),
-            Primitive::Circle { r, fn_, .. } => {
-                let seg = fn_.unwrap_or(16).max(3);
+            Primitive::Circle { r, fn_, fa, fs, .. } => {
+                let seg = Self::radial_segments(*r, *fn_, *fa, *fs);
                 Mesh::circle(*r, seg)
             }
             Primitive::Polyhedron { points, faces } => {
