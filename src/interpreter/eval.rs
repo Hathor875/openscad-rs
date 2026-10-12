@@ -342,13 +342,26 @@ impl Evaluator {
         Ok(Value::Undef)
     }
 
+    fn format_echo(args: &[Assignment], values: &[Value]) -> String {
+        values.iter().enumerate().map(|(index, value)| {
+            let name = args[index].name.as_str();
+            if name.is_empty() {
+                value.to_string()
+            } else {
+                format!("{} = {}", name, value)
+            }
+        }).collect::<Vec<_>>().join(", ")
+    }
+
     fn eval_echo(&mut self, args: &[Assignment]) -> Result<Value, String> {
+        let mut evaluated = Vec::new();
         for arg in args {
             if let Some(expr) = &arg.value {
                 let val = self.eval(expr)?;
-                println!("ECHO: {}", val);
+                evaluated.push(val);
             }
         }
+        println!("ECHO: {}", Self::format_echo(args, &evaluated));
         Ok(Value::Undef)
     }
 }

@@ -488,6 +488,21 @@ impl Executor {
         // let center_bool = self.get_bool(arguments, "center", false)?;
         
         match name {
+            "echo" => {
+                let mut output = Vec::new();
+                for argument in arguments {
+                    if let Some(expression) = &argument.value {
+                        let value = self.eval_expr(expression)?;
+                        if argument.name.is_empty() {
+                            output.push(value.to_string());
+                        } else {
+                            output.push(format!("{} = {}", argument.name, value));
+                        }
+                    }
+                }
+                println!("ECHO: {}", output.join(", "));
+                Ok(Some(()))
+            }
             // Primitive shapes - add to current builder
             "cube" => {
                 let size = if let Some(value) = self.get_vector(arguments, "size")? {
