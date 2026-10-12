@@ -55,6 +55,59 @@ impl Executor {
     fn current_builder(&mut self) -> &mut crate::csg::CsgBuilder {
         self.csg_stack.last_mut().unwrap()
     }
+
+    fn execute_with_forwarded_children(
+        &mut self,
+        stmt: &Statement,
+        forwarded: &[Statement],
+    ) -> Result<Option<Value>, String> {
+        if let Statement::ModuleInstantiation { name, args, children, .. } = stmt {
+            if name == "children" {
+                for child in forwarded {
+                    self.execute(child)?;
+                }
+                return Ok(None);
+            }
+            if name == "for" {
+                let binding = args.first().ok_or_else(|| "for requires a loop variable".to_string())?;
+                let variable = binding.name.clone();
+                let values = binding.value.as_ref()
+                    .ok_or_else(|| "for requires an iterable expression".to_string())
+                    .and_then(|expr| self.eval_expr(expr))?;
+                let values = match values {
+                    Value::Vector(values) => values,
+                    value => vec![value],
+                };
+                for value in values {
+                    let loop_env = Environment::with_parent(self.env.clone());
+                    loop_env.define(variable.clone(), value);
+                    let mut loop_exec = Executor::new(Rc::new(loop_env));
+                    for child in children {
+                        loop_exec.execute_with_forwarded_children(child, forwarded)?;
+                    }
+                    if let Some(node) = loop_exec.csg_stack.into_iter().next().and_then(|builder| builder.build()) {
+                        self.current_builder().union(node);
+                    }
+                }
+                return Ok(None);
+            }
+        }
+        self.execute(stmt)
+    }
+
+    fn contains_children_call(statements: &[Statement]) -> bool {
+        statements.iter().any(|stmt| match stmt {
+            Statement::ModuleInstantiation { name, children, .. } =>
+                name == "children" || Self::contains_children_call(children),
+            Statement::Block { statements, .. } => Self::contains_children_call(statements),
+            Statement::If { then_branch, else_branch, .. } =>
+                Self::contains_children_call(std::slice::from_ref(then_branch))
+                    || else_branch.as_deref().is_some_and(|branch| {
+                        Self::contains_children_call(std::slice::from_ref(branch))
+                    }),
+            _ => false,
+        })
+    }
     
     pub fn execute(&mut self, stmt: &Statement) -> Result<Option<Value>, String> {
         match stmt {
@@ -447,6 +500,40 @@ impl Executor {
         children: &[Statement],
         _modifiers: &ModuleModifiers,
     ) -> Result<(), String> {
+        if name == "for" {
+            let binding = arguments.first()
+                .ok_or_else(|| "for requires a loop variable".to_string())?;
+            let variable = if binding.name.is_empty() {
+                return Err("for requires a named loop variable".into());
+            } else {
+                binding.name.clone()
+            };
+            let values = binding.value.as_ref()
+                .ok_or_else(|| "for requires an iterable expression".to_string())
+                .and_then(|expr| self.eval_expr(expr))?;
+            let values = match values {
+                Value::Vector(values) => values,
+                value => vec![value],
+            };
+            for value in values {
+                let loop_env = Environment::with_parent(self.env.clone());
+                loop_env.define(variable.clone(), value);
+                let mut loop_exec = Executor::new(Rc::new(loop_env));
+                for child in children {
+                    loop_exec.execute(child)?;
+                }
+                if let Some(node) = loop_exec.csg_stack.into_iter().next().and_then(|builder| builder.build()) {
+                    self.current_builder().union(node);
+                }
+            }
+            return Ok(());
+        }
+        if name == "children" {
+            for child in children {
+                self.execute(child)?;
+            }
+            return Ok(());
+        }
         // Handle built-in modules
         if let Some(()) = self.exec_builtin_module(name, arguments, children)? {
             return Ok(());
@@ -481,11 +568,13 @@ impl Executor {
                 
                 let mut exec = Executor::new(Rc::new(new_env));
                 for stmt in &module.body {
-                    exec.execute(stmt)?;
+                    exec.execute_with_forwarded_children(stmt, children)?;
                 }
                 
-                for child in children {
-                    exec.execute(child)?;
+                if !Self::contains_children_call(&module.body) {
+                    for child in children {
+                        exec.execute(child)?;
+                    }
                 }
                 if let Some(node) = exec.csg_stack.into_iter().next().and_then(|builder| builder.build()) {
                     self.current_builder().union(node);

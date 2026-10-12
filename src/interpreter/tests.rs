@@ -140,6 +140,15 @@ mod tests {
     }
 
     #[test]
+    fn test_for_module_repeats_child_geometry() {
+        let parsed = Parser::parse("for (i = [0:2]) translate([i * 2, 0, 0]) cube(1);").unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.faces.len(), 36);
+    }
+
+    #[test]
     fn test_each_expression() {
         let env = eval_source("x = each [[1, 2], [3, 4]];").unwrap();
         assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![
