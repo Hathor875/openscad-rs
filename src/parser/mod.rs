@@ -636,19 +636,19 @@ impl Parser {
             })
             .collect::<Result<Vec<_>>>()?;
         if let [condition, then_expr, else_expr] = expressions.as_slice() {
-            Ok(Expression::TernaryOp(
-                Box::new(condition.clone()),
-                Box::new(then_expr.clone()),
-                Box::new(else_expr.clone()),
+            Ok(Expression::If {
+                condition: Box::new(condition.clone()),
+                then_branch: Box::new(then_expr.clone()),
+                else_branch: Some(Box::new(else_expr.clone())),
                 span,
-            ))
+            })
         } else if let [condition, then_expr] = expressions.as_slice() {
-            Ok(Expression::TernaryOp(
-                Box::new(condition.clone()),
-                Box::new(then_expr.clone()),
-                Box::new(Expression::Literal(LiteralValue::Undefined, span)),
+            Ok(Expression::If {
+                condition: Box::new(condition.clone()),
+                then_branch: Box::new(then_expr.clone()),
+                else_branch: None,
                 span,
-            ))
+            })
         } else {
             Err(anyhow::anyhow!("if expression requires a condition and value"))
         }

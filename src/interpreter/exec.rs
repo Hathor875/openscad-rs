@@ -710,27 +710,29 @@ impl Executor {
         let module = module_opt.ok_or_else(|| format!("Undefined module '{}'", name))?;
 
         let new_env = Environment::with_parent(self.env.clone());
-                let mut positional = arguments.iter().filter(|argument| argument.name.is_empty());
-                
-                for (param_name, default) in &module.params {
-                    let argument = arguments.iter()
-                        .find(|argument| argument.name == *param_name)
-                        .or_else(|| positional.next());
-                    let value = if let Some(arg) = argument {
-                        if let Some(expr) = &arg.value {
-                            self.eval_expr(expr)?
-                        } else {
-                            Value::Undef
-                        }
-                    } else if let Some(default_expr) = default {
-                        self.eval_expr(default_expr)?
-                    } else {
-                        return Err(format!("Missing argument for parameter '{}'", param_name));
-                    };
-                    new_env.define(param_name.clone(), value);
+        let new_env_rc = Rc::new(new_env);
+        let mut positional = arguments.iter().filter(|argument| argument.name.is_empty());
+        
+        for (param_name, default) in &module.params {
+            let argument = arguments.iter()
+                .find(|argument| argument.name == *param_name)
+                .or_else(|| positional.next());
+            let value = if let Some(arg) = argument {
+                if let Some(expr) = &arg.value {
+                    self.eval_expr(expr)?
+                } else {
+                    Value::Undef
                 }
-                
-                let mut exec = Executor::with_context(Rc::new(new_env), self.source_stack.clone(), self.loading.clone());
+            } else if let Some(default_expr) = default {
+                let mut eval = Evaluator::new(new_env_rc.clone());
+                eval.eval(default_expr)?
+            } else {
+                return Err(format!("Missing argument for parameter '{}'", param_name));
+            };
+            new_env_rc.define(param_name.clone(), value);
+        }
+        
+        let mut exec = Executor::with_context(new_env_rc, self.source_stack.clone(), self.loading.clone());
                 exec.hoist_definitions(&module.body)?;
 
                 for stmt in &module.body {

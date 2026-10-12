@@ -3,9 +3,18 @@ use std::fs;
 use std::rc::Rc;
 
 fn main() {
-    if let Err(error) = run(std::env::args().skip(1).collect()) {
-        eprintln!("Error: {error}");
-        std::process::exit(1);
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let thread = std::thread::Builder::new()
+        .stack_size(64 * 1024 * 1024)
+        .spawn(move || run(args))
+        .expect("failed to spawn worker thread");
+
+    match thread.join().unwrap_or_else(|_| Err("fatal runtime error: thread panicked".into())) {
+        Ok(()) => {}
+        Err(error) => {
+            eprintln!("Error: {error}");
+            std::process::exit(1);
+        }
     }
 }
 

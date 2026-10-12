@@ -78,8 +78,14 @@ impl Environment {
     }
 
     pub fn get(&self, name: &str) -> Option<Value> {
-        self.vars.borrow().get(name).cloned()
-            .or_else(|| self.parent.as_ref().and_then(|p| p.get(name)))
+        let mut curr = Some(self);
+        while let Some(env) = curr {
+            if let Some(val) = env.vars.borrow().get(name) {
+                return Some(val.clone());
+            }
+            curr = env.parent.as_deref();
+        }
+        None
     }
 
     pub fn define_function(&self, name: String, func: FunctionValue) {
@@ -87,8 +93,14 @@ impl Environment {
     }
 
     pub fn get_function(&self, name: &str) -> Option<FunctionValue> {
-        self.functions.borrow().get(name).cloned()
-            .or_else(|| self.parent.as_ref().and_then(|p| p.get_function(name)))
+        let mut curr = Some(self);
+        while let Some(env) = curr {
+            if let Some(val) = env.functions.borrow().get(name) {
+                return Some(val.clone());
+            }
+            curr = env.parent.as_deref();
+        }
+        None
     }
 
     pub fn define_module(&self, name: String, module: ModuleValue) {
@@ -96,19 +108,26 @@ impl Environment {
     }
 
     pub fn get_module(&self, name: &str) -> Option<ModuleValue> {
-        self.modules.borrow().get(name).cloned()
-            .or_else(|| self.parent.as_ref().and_then(|p| p.get_module(name)))
+        let mut curr = Some(self);
+        while let Some(env) = curr {
+            if let Some(val) = env.modules.borrow().get(name) {
+                return Some(val.clone());
+            }
+            curr = env.parent.as_deref();
+        }
+        None
     }
 
     pub fn assign(&self, name: &str, value: Value) -> Result<(), String> {
-        if self.vars.borrow().contains_key(name) {
-            self.vars.borrow_mut().insert(name.to_string(), value);
-            Ok(())
-        } else if let Some(parent) = &self.parent {
-            parent.assign(name, value)
-        } else {
-            Err(format!("Variable '{}' not found", name))
+        let mut curr = Some(self);
+        while let Some(env) = curr {
+            if env.vars.borrow().contains_key(name) {
+                env.vars.borrow_mut().insert(name.to_string(), value);
+                return Ok(());
+            }
+            curr = env.parent.as_deref();
         }
+        Err(format!("Variable '{}' not found", name))
     }
 
     pub fn has_local(&self, name: &str) -> bool {

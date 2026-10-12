@@ -24,6 +24,16 @@ impl Evaluator {
             Expression::UnaryOp(op, expr, _span) => self.eval_unary(op, expr),
             Expression::BinaryOp(op, left, right, _span) => self.eval_binary(op, left, right),
             Expression::TernaryOp(cond, then_e, else_e, _span) => self.eval_ternary(cond, then_e, else_e),
+            Expression::If { condition, then_branch, else_branch, .. } => {
+                let cond_val = self.eval(condition)?;
+                if cond_val.as_bool() {
+                    self.eval(then_branch)
+                } else if let Some(else_branch) = else_branch {
+                    self.eval(else_branch)
+                } else {
+                    Ok(Value::Undef)
+                }
+            }
             Expression::Vector(exprs, _span) => self.eval_vector(exprs),
             Expression::Range { start, step, end, .. } => self.eval_range(start, step.as_deref(), end),
             Expression::FunctionCall { name, args, .. } => self.eval_function_call(name, args),
@@ -263,15 +273,18 @@ impl Evaluator {
         let mut values = Vec::new();
         for e in exprs {
             let value = self.eval(e)?;
-            if matches!(e, Expression::For { .. } | Expression::Each { .. }) {
+            if matches!(e, Expression::For { .. } | Expression::ForC { .. } | Expression::Each { .. }) {
                 if let Value::Vector(items) = value {
                     values.extend(items.into_iter().filter(|item| !item.is_undef()));
                     continue;
                 }
             }
-            if !value.is_undef() {
-                values.push(value);
+            if let Expression::If { else_branch, .. } = e {
+                if else_branch.is_none() && value.is_undef() {
+                    continue;
+                }
             }
+            values.push(value);
         }
         Ok(Value::Vector(values))
     }
@@ -508,15 +521,17 @@ impl Evaluator {
 
     fn eval_let(&mut self, bindings: &[Assignment], body: &Expression) -> Result<Value, String> {
         let new_env = Environment::with_parent(self.env.clone());
+        let new_env_rc = Rc::new(new_env);
         
         for binding in bindings {
             if let Some(expr) = &binding.value {
-                let value = self.eval(expr)?;
-                new_env.define(binding.name.clone(), value);
+                let mut eval = Evaluator::new(new_env_rc.clone());
+                let value = eval.eval(expr)?;
+                new_env_rc.define(binding.name.clone(), value);
             }
         }
         
-        let mut eval = Evaluator::new(Rc::new(new_env));
+        let mut eval = Evaluator::new(new_env_rc);
         eval.eval(body)
     }
 
