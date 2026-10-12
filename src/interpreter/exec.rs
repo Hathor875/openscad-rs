@@ -210,7 +210,7 @@ impl Executor {
         let argument = arguments.iter().find(|argument| {
             argument.name == name || argument.name.strip_prefix('$') == Some(name)
         }).or_else(|| {
-            if matches!(name, "size" | "points" | "faces") {
+            if matches!(name, "size" | "points" | "faces" | "color") {
                 arguments.iter().find(|argument| argument.name.is_empty())
             } else {
                 None
@@ -222,6 +222,28 @@ impl Executor {
         argument.value.as_ref()
             .map(|expression| self.eval_expr(expression))
             .transpose()
+    }
+
+    fn get_color(&mut self, arguments: &[Assignment]) -> Result<[f64; 4], String> {
+        if let Some(value) = self.get_vector(arguments, "color")? {
+            let Value::Vector(values) = value else {
+                return Err("color must be a three- or four-element vector".into());
+            };
+            if values.len() != 3 && values.len() != 4 {
+                return Err("color must be a three- or four-element vector".into());
+            }
+            let mut color = [1.0; 4];
+            for (index, value) in values.into_iter().enumerate() {
+                color[index] = value.as_number()?;
+            }
+            return Ok(color);
+        }
+        Ok([
+            self.get_arg(arguments, "r")?.unwrap_or(1.0),
+            self.get_arg(arguments, "g")?.unwrap_or(1.0),
+            self.get_arg(arguments, "b")?.unwrap_or(1.0),
+            self.get_arg(arguments, "a")?.unwrap_or(1.0),
+        ])
     }
 
     fn value_points(value: Value) -> Result<Vec<[f64; 3]>, String> {
@@ -678,16 +700,19 @@ impl Executor {
                 Ok(Some(()))
             }
             "multmatrix" => {
-                self.csg_stack.push(CsgBuilder::new());
-                for child in children {
-                    self.execute(child)?;
-                }
-                Ok(Some(()))
+                Err("multmatrix is not supported yet".into())
             }
             "color" => {
                 self.csg_stack.push(CsgBuilder::new());
                 for child in children {
                     self.execute(child)?;
+                }
+                if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
+                    let color = self.get_color(arguments)?;
+                    self.current_builder().union(crate::csg::CsgNode::Color {
+                        child: Box::new(child_csg),
+                        color,
+                    });
                 }
                 Ok(Some(()))
             }

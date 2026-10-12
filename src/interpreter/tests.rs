@@ -338,6 +338,24 @@ mod tests {
     }
 
     #[test]
+    fn test_color_preserves_child_geometry() {
+        let parsed = Parser::parse("color([1, 0, 0]) cube([2, 3, 4]);").unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.vertices.len(), 8);
+        assert_eq!(mesh.faces.len(), 12);
+    }
+
+    #[test]
+    fn test_multmatrix_reports_unsupported_operation() {
+        let parsed = Parser::parse("multmatrix([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]) cube();").unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        let error = exec.execute_source(&parsed).unwrap_err();
+        assert!(error.contains("multmatrix is not supported"));
+    }
+
+    #[test]
     fn test_linear_extrude_builds_solid_mesh() {
         let input = "linear_extrude(height = 3) polygon(points = [[0,0], [2,0], [2,1], [0,1]]);";
         let parsed = Parser::parse(input).unwrap();
