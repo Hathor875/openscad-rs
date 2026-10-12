@@ -1054,6 +1054,16 @@ impl Executor {
                 }
                 Ok(Some(()))
             }
+            "render" => {
+                self.csg_stack.push(CsgBuilder::new());
+                for child in children {
+                    self.execute(child)?;
+                }
+                if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
+                    self.current_builder().union(child_csg);
+                }
+                Ok(Some(()))
+            }
             // Boolean operations
             "union" => {
                 let mut nodes = self.child_nodes(children)?.into_iter();

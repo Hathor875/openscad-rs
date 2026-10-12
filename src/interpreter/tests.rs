@@ -482,6 +482,16 @@ mod tests {
     }
 
     #[test]
+    fn test_render_preserves_child_geometry() {
+        let parsed = Parser::parse("render(convexity = 4) translate([2, 0, 0]) cube(2);").unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        let min_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::INFINITY, f64::min);
+        assert_eq!(min_x, 2.0);
+    }
+
+    #[test]
     fn test_multmatrix_transforms_child_geometry() {
         let parsed = Parser::parse(
             "multmatrix([[1,0,0,2],[0,1,0,3],[0,0,1,4],[0,0,0,1]]) cube();",
