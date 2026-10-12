@@ -294,8 +294,58 @@ impl Executor {
             if indices.len() < 3 {
                 return Err("polygon paths need at least three points".into());
             }
+            if indices.windows(2).any(|window| window[0] == window[1])
+                || indices.first() == indices.last()
+            {
+                return Err("polygon paths cannot contain duplicate adjacent points".into());
+            }
             Ok(indices)
         }).collect()
+    }
+
+    fn validate_polygon_paths(points: &[[f64; 2]], paths: &[Vec<usize>]) -> Result<(), String> {
+        for path in paths {
+            let area: f64 = path.iter().enumerate().map(|(index, &current)| {
+                let next = path[(index + 1) % path.len()];
+                points[current][0] * points[next][1] - points[next][0] * points[current][1]
+            }).sum::<f64>() / 2.0;
+            if area.abs() <= f64::EPSILON {
+                return Err("polygon paths must enclose a non-zero area".into());
+            }
+            for first in 0..path.len() {
+                let first_next = (first + 1) % path.len();
+                for second in (first + 1)..path.len() {
+                    let second_next = (second + 1) % path.len();
+                    if first == second
+                        || first_next == second
+                        || second_next == first
+                    {
+                        continue;
+                    }
+                    if Self::segments_intersect(
+                        points[path[first]],
+                        points[path[first_next]],
+                        points[path[second]],
+                        points[path[second_next]],
+                    ) {
+                        return Err("polygon paths cannot self-intersect".into());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn segments_intersect(a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]) -> bool {
+        fn orientation(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> f64 {
+            (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
+        }
+        let ab_c = orientation(a, b, c);
+        let ab_d = orientation(a, b, d);
+        let cd_a = orientation(c, d, a);
+        let cd_b = orientation(c, d, b);
+        (ab_c > 0.0 && ab_d < 0.0 || ab_c < 0.0 && ab_d > 0.0)
+            && (cd_a > 0.0 && cd_b < 0.0 || cd_a < 0.0 && cd_b > 0.0)
     }
     
     fn exec_module_inst(
@@ -479,6 +529,7 @@ impl Executor {
                 if paths.len() > 1 {
                     return Err("polygon holes are not supported yet".into());
                 }
+                Self::validate_polygon_paths(&points, &paths)?;
                 self.current_builder().add_primitive(Primitive::Polygon { points, paths });
                 Ok(Some(()))
             }

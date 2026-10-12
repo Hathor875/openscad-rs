@@ -306,6 +306,23 @@ mod tests {
     }
 
     #[test]
+    fn test_invalid_polygon_geometry_reports_error() {
+        let parsed = Parser::parse(
+            "polygon(points = [[0,0], [4,4], [0,3], [3,0]]);",
+        ).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        let error = exec.execute_source(&parsed).unwrap_err();
+        assert!(error.contains("self-intersect"));
+
+        let parsed = Parser::parse(
+            "polygon(points = [[0,0], [1,0], [2,0]]);",
+        ).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        let error = exec.execute_source(&parsed).unwrap_err();
+        assert!(error.contains("non-zero area"));
+    }
+
+    #[test]
     fn test_linear_extrude_builds_solid_mesh() {
         let input = "linear_extrude(height = 3) polygon(points = [[0,0], [2,0], [2,1], [0,1]]);";
         let parsed = Parser::parse(input).unwrap();
