@@ -536,15 +536,24 @@ impl Evaluator {
         };
         
         if !cond_val.as_bool() {
-            let msg = if let Some(body_expr) = body {
-                self.eval(body_expr)?.as_string().unwrap_or_else(|_| "Assertion failed".to_string())
+            let msg = if args.len() > 1 {
+                if let Some(msg_expr) = &args[1].value {
+                    self.eval(msg_expr)?.as_string().unwrap_or_else(|_| "Assertion failed".to_string())
+                } else {
+                    "Assertion failed".to_string()
+                }
             } else {
                 "Assertion failed".to_string()
             };
             return Err(msg);
         }
-        Ok(Value::Undef)
+        if let Some(body_expr) = body {
+            self.eval(body_expr)
+        } else {
+            Ok(Value::Undef)
+        }
     }
+
 
     fn format_echo(args: &[Assignment], values: &[Value]) -> String {
         values.iter().enumerate().map(|(index, value)| {

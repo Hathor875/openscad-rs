@@ -504,46 +504,99 @@ fn builtin_rands(args: Vec<Value>) -> Result<Value, String> {
 }
 
 fn builtin_search(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() < 2 || args.len() > 3 { return Err("search expects 2 or 3 arguments".into()); }
-    let pattern = args[0].as_string()?;
-    let text = &args[1];
-    
-    match text {
-        Value::String(s) => {
-            let _case_insensitive = args.get(2).map(|v| v.as_bool()).unwrap_or(false);
-            
-            if let Some(pos) = s.find(&pattern) {
-                Ok(Value::Number(pos as f64))
-            } else {
-                Ok(Value::Undef)
-            }
-        }
-        Value::Vector(vec) => {
-            let case_insensitive = args.get(2).map(|v| v.as_bool()).unwrap_or(false);
-            let mut indices: Vec<Value> = Vec::new();
-            for (i, element) in vec.iter().enumerate() {
-                let element_str = element.as_string();
-                if let Ok(es) = element_str {
-                    if case_insensitive {
-                        if es.to_lowercase().contains(&pattern.to_lowercase()) {
-                            indices.push(Value::Number(i as f64));
+    if args.len() < 2 || args.len() > 4 {
+        return Err("search expects 2 to 4 arguments".into());
+    }
+    let target = &args[0];
+    let source = &args[1];
+    let num_returns = args.get(2).and_then(|v| v.as_number().ok()).unwrap_or(1.0) as usize;
+    let col = args.get(3).and_then(|v| v.as_number().ok()).unwrap_or(0.0) as usize;
+
+    let search_single = |item: &Value| -> Vec<Value> {
+        let mut matches = Vec::new();
+        match source {
+            Value::String(s) => {
+                if let Ok(pat) = item.as_string() {
+                    let mut start = 0;
+                    while let Some(pos) = s[start..].find(&pat) {
+                        let actual_pos = start + pos;
+                        matches.push(Value::Number(actual_pos as f64));
+                        if num_returns == 1 {
+                            break;
                         }
-                    } else if es.contains(&pattern) {
-                        indices.push(Value::Number(i as f64));
+                        start = actual_pos + 1.max(pat.len());
+                        if start >= s.len() {
+                            break;
+                        }
                     }
                 }
             }
-            if indices.is_empty() {
+            Value::Vector(vec) => {
+                for (i, elem) in vec.iter().enumerate() {
+                    let is_match = match elem {
+                        Value::Vector(row) => {
+                            if col < row.len() {
+                                &row[col] == item
+                            } else {
+                                false
+                            }
+                        }
+                        _ => elem == item,
+                    };
+                    if is_match {
+                        matches.push(Value::Number(i as f64));
+                        if num_returns == 1 {
+                            break;
+                        }
+                    } else if let (Ok(pat), Ok(es)) = (item.as_string(), elem.as_string()) {
+                        if es.contains(&pat) {
+                            matches.push(Value::Number(i as f64));
+                            if num_returns == 1 {
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+        matches
+    };
+
+    match target {
+        Value::Vector(keys) => {
+            let mut results = Vec::new();
+            for key in keys {
+                let m = search_single(key);
+                if num_returns == 1 {
+                    if let Some(first) = m.into_iter().next() {
+                        results.push(first);
+                    } else {
+                        results.push(Value::Vector(Vec::new()));
+                    }
+                } else {
+                    results.push(Value::Vector(m));
+                }
+            }
+            Ok(Value::Vector(results))
+        }
+        _ => {
+            let m = search_single(target);
+            if num_returns == 1 {
+                if let Some(first) = m.into_iter().next() {
+                    Ok(first)
+                } else {
+                    Ok(Value::Undef)
+                }
+            } else if m.is_empty() {
                 Ok(Value::Undef)
-            } else if indices.len() == 1 {
-                Ok(indices[0].clone())
             } else {
-                Ok(Value::Vector(indices))
+                Ok(Value::Vector(m))
             }
         }
-        _ => Err("search expects string or vector as second argument".into()),
     }
 }
+
 
 fn builtin_version(args: Vec<Value>) -> Result<Value, String> {
     if !args.is_empty() { return Err("version expects no arguments".into()); }

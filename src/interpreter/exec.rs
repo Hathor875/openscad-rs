@@ -243,19 +243,21 @@ impl Executor {
             a.name == name || a.name.strip_prefix('$') == Some(name)
         }) {
             if let Some(expr) = &argument.value {
-                    let v = self.eval_expr(expr)?;
-                    let num = v.as_number()?;
-                    return Ok(Some(num));
+                let v = self.eval_expr(expr)?;
+                if v.is_undef() {
+                    return Ok(None);
+                }
+                let num = v.as_number()?;
+                return Ok(Some(num));
             } else {
                 return Ok(None);
             }
-
         }
         let value = self.env.get(name)
             .or_else(|| self.env.get(&format!("${name}")));
         match value {
-            Some(value) => Ok(Some(value.as_number()?)),
-            None => Ok(None),
+            Some(Value::Undef) | None => Ok(None),
+            Some(val) => Ok(Some(val.as_number()?)),
         }
     }
 
@@ -263,11 +265,17 @@ impl Executor {
         let Some(argument) = arguments.iter().filter(|argument| argument.name.is_empty()).nth(index) else {
             return Ok(None);
         };
-        argument.value.as_ref()
-            .map(|expression| self.eval_expr(expression).and_then(|value| value.as_number()).map(Some))
-            .transpose()
-            .map(|value| value.flatten())
+        let Some(expression) = &argument.value else {
+            return Ok(None);
+        };
+        let v = self.eval_expr(expression)?;
+        if v.is_undef() {
+            Ok(None)
+        } else {
+            Ok(Some(v.as_number()?))
+        }
     }
+
 
     fn get_string(&mut self, arguments: &[Assignment], name: &str) -> Result<Option<String>, String> {
         let Some(argument) = arguments.iter().find(|argument| {
@@ -318,26 +326,30 @@ impl Executor {
             return Ok(None);
         };
         let value = self.eval_expr(expression)?;
+        if value.is_undef() {
+            return Ok(Some([0.0, 0.0, 0.0]));
+        }
+        if let Value::Number(scalar) = value {
+            return Ok(Some([scalar, scalar, scalar]));
+        }
         let Value::Vector(values) = value else {
             return Err("transformation vector must be a vector".into());
         };
         if values.len() == 2 {
-            return Ok(Some([
-                values[0].as_number()?,
-                values[1].as_number()?,
-                0.0,
-            ]));
+            let x = if values[0].is_undef() { 0.0 } else { values[0].as_number()? };
+            let y = if values[1].is_undef() { 0.0 } else { values[1].as_number()? };
+            return Ok(Some([x, y, 0.0]));
         }
         if values.len() != 3 {
             return Err("transformation vector must contain two or three values".into());
         }
 
-        Ok(Some([
-            values[0].as_number()?,
-            values[1].as_number()?,
-            values[2].as_number()?,
-        ]))
+        let x = if values[0].is_undef() { 0.0 } else { values[0].as_number()? };
+        let y = if values[1].is_undef() { 0.0 } else { values[1].as_number()? };
+        let z = if values[2].is_undef() { 0.0 } else { values[2].as_number()? };
+        Ok(Some([x, y, z]))
     }
+
 
     fn get_vector(&mut self, arguments: &[Assignment], name: &str) -> Result<Option<Value>, String> {
         let argument = arguments.iter().find(|argument| {

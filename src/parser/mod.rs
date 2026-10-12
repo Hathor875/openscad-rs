@@ -383,45 +383,27 @@ impl Parser {
                 Ok(Expression::Literal(LiteralValue::Undefined, Span::default()))
             }
             Rule::ternary => {
-                let condition = Self::parse_expression(inner.next().unwrap())?;
-                if let Some(then_expr) = inner.next() {
-                    // Handle then expression - might be Question token (the ? separator)
-                    let then_expr = if then_expr.as_rule() == Rule::Question {
-                        // Skip Question token, parse actual then expression
-                        if let Some(actual_then) = inner.next() {
-                            Self::parse_expression(actual_then)?
-                        } else {
-                            return Ok(condition);
-                        }
-                    } else {
-                        Self::parse_expression(then_expr)?
-                    };
-                    // Handle else expression - might be Question token (the : separator context)
-                    if let Some(else_expr_pair) = inner.next() {
-                        let else_expr = if else_expr_pair.as_rule() == Rule::Question {
-                            // Skip Question token, parse actual else expression
-                            if let Some(actual_else) = inner.next() {
-                                Self::parse_expression(actual_else)?
-                            } else {
-                                return Ok(condition);
-                            }
-                        } else {
-                            Self::parse_expression(else_expr_pair)?
-                        };
-                        let span = Self::pest_span_to_span(pair.as_span());
-                        Ok(Expression::TernaryOp(
-                            Box::new(condition),
-                            Box::new(then_expr),
-                            Box::new(else_expr),
-                            span,
-                        ))
-                    } else {
-                        Ok(condition)
-                    }
+                let exprs: Vec<_> = inner
+                    .filter(|p| !matches!(p.as_rule(), Rule::Question | Rule::Colon))
+                    .collect();
+                if exprs.len() >= 3 {
+                    let condition = Self::parse_expression(exprs[0].clone())?;
+                    let then_expr = Self::parse_expression(exprs[1].clone())?;
+                    let else_expr = Self::parse_expression(exprs[2].clone())?;
+                    let span = Self::pest_span_to_span(pair.as_span());
+                    Ok(Expression::TernaryOp(
+                        Box::new(condition),
+                        Box::new(then_expr),
+                        Box::new(else_expr),
+                        span,
+                    ))
+                } else if !exprs.is_empty() {
+                    Self::parse_expression(exprs[0].clone())
                 } else {
-                    Ok(condition)
+                    Ok(Expression::Literal(LiteralValue::Undefined, Span::default()))
                 }
             }
+
             Rule::logic_or => Self::parse_binary_chain(pair, BinaryOp::LogicalOr),
             Rule::logic_and => Self::parse_binary_chain(pair, BinaryOp::LogicalAnd),
             Rule::equality => Self::parse_binary_chain_with_ops(pair, &[
@@ -1061,6 +1043,14 @@ mod tests {
     #[test]
     fn test_parse_ident_with_digits() {
         let input = "123_block = 10;";
+        let result = Parser::parse(input);
+        println!("Result: {:?}", result);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_parse_ternary() {
+        let input = "x = false ? 1 : [1, 2];";
         let result = Parser::parse(input);
         println!("Result: {:?}", result);
         assert!(result.is_ok());
