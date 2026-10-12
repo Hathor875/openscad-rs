@@ -404,7 +404,28 @@ impl Executor {
                 }
             }
         }
+        if let Some(outer) = paths.first() {
+            for hole in paths.iter().skip(1) {
+                if !Self::point_in_polygon(points[hole[0]], points, outer) {
+                    return Err("polygon holes must be inside the outer path".into());
+                }
+            }
+        }
         Ok(())
+    }
+
+    fn point_in_polygon(point: [f64; 2], points: &[[f64; 2]], path: &[usize]) -> bool {
+        let mut inside = false;
+        for index in 0..path.len() {
+            let a = points[path[index]];
+            let b = points[path[(index + 1) % path.len()]];
+            if (a[1] > point[1]) != (b[1] > point[1])
+                && point[0] < (b[0] - a[0]) * (point[1] - a[1]) / (b[1] - a[1]) + a[0]
+            {
+                inside = !inside;
+            }
+        }
+        inside
     }
 
     fn segments_intersect(a: [f64; 2], b: [f64; 2], c: [f64; 2], d: [f64; 2]) -> bool {

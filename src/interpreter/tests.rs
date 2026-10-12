@@ -346,17 +346,29 @@ mod tests {
         }).sum::<f64>();
         assert!((area - 15.0).abs() < 1e-9, "triangulated area was {area}");
         let hole_center = [1.5, 1.5];
-        assert!(!mesh.faces.iter().any(|face| {
-            let a = mesh.vertices[face[0]];
-            let b = mesh.vertices[face[1]];
-            let c = mesh.vertices[face[2]];
-            let area = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
-            area.abs() > 0.0
-                && hole_center[0] >= a[0].min(b[0]).min(c[0])
-                && hole_center[0] <= a[0].max(b[0]).max(c[0])
-                && hole_center[1] >= a[1].min(b[1]).min(c[1])
-                && hole_center[1] <= a[1].max(b[1]).max(c[1])
-        }));
+        let contains = |point: [f64; 2], face: &[usize; 3]| {
+            let vertices = face.map(|index| mesh.vertices[index]);
+            let signs = [
+                (vertices[1][0] - vertices[0][0]) * (point[1] - vertices[0][1])
+                    - (vertices[1][1] - vertices[0][1]) * (point[0] - vertices[0][0]),
+                (vertices[2][0] - vertices[1][0]) * (point[1] - vertices[1][1])
+                    - (vertices[2][1] - vertices[1][1]) * (point[0] - vertices[1][0]),
+                (vertices[0][0] - vertices[2][0]) * (point[1] - vertices[2][1])
+                    - (vertices[0][1] - vertices[2][1]) * (point[0] - vertices[2][0]),
+            ];
+            signs.iter().all(|sign| *sign >= 0.0) || signs.iter().all(|sign| *sign <= 0.0)
+        };
+        assert!(!mesh.faces.iter().any(|face| contains(hole_center, face)));
+    }
+
+    #[test]
+    fn test_polygon_holes_must_be_inside_outer_path() {
+        let parsed = Parser::parse(
+            "polygon(points = [[0,0], [4,0], [4,4], [0,4], [5,5], [6,5], [6,6], [5,6]], paths = [[0,1,2,3], [4,5,6,7]]);",
+        ).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        let error = exec.execute_source(&parsed).unwrap_err();
+        assert!(error.contains("inside the outer path"));
     }
 
     #[test]
