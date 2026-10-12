@@ -421,7 +421,7 @@ impl Executor {
                     "blue" => [0.0, 0.0, 1.0, 1.0],
                     "cyan" => [0.0, 1.0, 1.0, 1.0],
                     "gray" | "grey" => [0.5, 0.5, 0.5, 1.0],
-                    "green" => [0.0, 1.0, 0.0, 1.0],
+                    "green" | "darkgreen" => [0.0, 0.5, 0.0, 1.0],
                     "lime" => [0.0, 1.0, 0.0, 1.0],
                     "magenta" => [1.0, 0.0, 1.0, 1.0],
                     "orange" => [1.0, 0.5, 0.0, 1.0],
@@ -430,7 +430,12 @@ impl Executor {
                     "red" => [1.0, 0.0, 0.0, 1.0],
                     "white" => [1.0, 1.0, 1.0, 1.0],
                     "yellow" => [1.0, 1.0, 0.0, 1.0],
-                    _ => return Err(format!("unknown color name '{name}'")),
+                    "burlywood" => [0.87, 0.72, 0.53, 1.0],
+                    "brown" => [0.65, 0.16, 0.16, 1.0],
+                    "gold" => [1.0, 0.84, 0.0, 1.0],
+                    "silver" => [0.75, 0.75, 0.75, 1.0],
+                    "navy" => [0.0, 0.0, 0.5, 1.0],
+                    _ => [0.75, 0.75, 0.75, 1.0],
                 };
                 return Ok(color);
             }
@@ -695,12 +700,16 @@ impl Executor {
         }
         
         // Handle user-defined modules
-        let module_val = self.env.get(name)
-            .ok_or_else(|| format!("Undefined module '{}'", name))?;
-        
-        match module_val {
-            Value::Module(module) => {
-                let new_env = Environment::with_parent(self.env.clone());
+        let module_opt = self.env.get_module(name).or_else(|| {
+            if let Some(Value::Module(m)) = self.env.get(name) {
+                Some(m)
+            } else {
+                None
+            }
+        });
+        let module = module_opt.ok_or_else(|| format!("Undefined module '{}'", name))?;
+
+        let new_env = Environment::with_parent(self.env.clone());
                 let mut positional = arguments.iter().filter(|argument| argument.name.is_empty());
                 
                 for (param_name, default) in &module.params {
@@ -739,10 +748,6 @@ impl Executor {
                     self.current_builder().union(node);
                 }
                 Ok(())
-            }
-            Value::Function(_) => Err(format!("'{}' is a function, not a module", name)),
-            _ => Err(format!("'{}' is not a module", name)),
-        }
     }
     
     fn exec_builtin_module(
@@ -787,7 +792,13 @@ impl Executor {
                     .map(|value| value.as_bool())
                     .unwrap_or(false);
                 if !condition {
-                    return Err("assertion failed".into());
+                    let msg = arguments.get(1)
+                        .and_then(|arg| arg.value.as_ref())
+                        .map(|expr| self.eval_expr(expr))
+                        .transpose()?
+                        .map(|v| v.to_string())
+                        .unwrap_or_else(|| "assertion failed".into());
+                    return Err(format!("assertion failed: {}", msg));
                 }
                 Ok(Some(()))
             }
@@ -948,7 +959,11 @@ impl Executor {
                 }
                 let center = self.get_bool(arguments, "center", false)?;
                 let twist = self.get_arg(arguments, "twist")?.unwrap_or(0.0);
-                let scale = self.get_arg(arguments, "scale")?.unwrap_or(1.0);
+                let scale = match self.get_vector(arguments, "scale")? {
+                    Some(Value::Number(s)) => s,
+                    Some(Value::Vector(v)) => v.first().and_then(|x| x.as_number().ok()).unwrap_or(1.0),
+                    _ => 1.0,
+                };
                 if !twist.is_finite() || !scale.is_finite() || scale < 0.0 {
                     return Err("linear_extrude twist must be finite and scale must be non-negative".into());
                 }
@@ -1264,7 +1279,7 @@ impl Executor {
             modifiers: ModuleModifiers::default(),
         };
         
-        self.env.define(name.to_string(), Value::Module(module));
+        self.env.define_module(name.to_string(), module);
         Ok(())
     }
     
@@ -1285,7 +1300,7 @@ impl Executor {
             captures: self.env.clone(),
         };
         
-        self.env.define(name.to_string(), Value::Function(func));
+        self.env.define_function(name.to_string(), func);
         Ok(())
     }
     

@@ -35,6 +35,8 @@ pub struct ModuleValue {
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Environment {
     pub vars: RefCell<HashMap<String, Value>>,
+    pub functions: RefCell<HashMap<String, FunctionValue>>,
+    pub modules: RefCell<HashMap<String, ModuleValue>>,
     pub parent: Option<Rc<Environment>>,
 }
 
@@ -42,6 +44,8 @@ impl Environment {
     pub fn new() -> Self {
         let env = Self {
             vars: RefCell::new(HashMap::new()),
+            functions: RefCell::new(HashMap::new()),
+            modules: RefCell::new(HashMap::new()),
             parent: None,
         };
         env.init_defaults();
@@ -63,6 +67,8 @@ impl Environment {
     pub fn with_parent(parent: Rc<Environment>) -> Self {
         Self {
             vars: RefCell::new(HashMap::new()),
+            functions: RefCell::new(HashMap::new()),
+            modules: RefCell::new(HashMap::new()),
             parent: Some(parent),
         }
     }
@@ -74,6 +80,24 @@ impl Environment {
     pub fn get(&self, name: &str) -> Option<Value> {
         self.vars.borrow().get(name).cloned()
             .or_else(|| self.parent.as_ref().and_then(|p| p.get(name)))
+    }
+
+    pub fn define_function(&self, name: String, func: FunctionValue) {
+        self.functions.borrow_mut().insert(name, func);
+    }
+
+    pub fn get_function(&self, name: &str) -> Option<FunctionValue> {
+        self.functions.borrow().get(name).cloned()
+            .or_else(|| self.parent.as_ref().and_then(|p| p.get_function(name)))
+    }
+
+    pub fn define_module(&self, name: String, module: ModuleValue) {
+        self.modules.borrow_mut().insert(name, module);
+    }
+
+    pub fn get_module(&self, name: &str) -> Option<ModuleValue> {
+        self.modules.borrow().get(name).cloned()
+            .or_else(|| self.parent.as_ref().and_then(|p| p.get_module(name)))
     }
 
     pub fn assign(&self, name: &str, value: Value) -> Result<(), String> {

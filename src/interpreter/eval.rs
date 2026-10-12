@@ -434,7 +434,9 @@ impl Evaluator {
             return builtin(evaluated_args);
         }
 
-        let func_val = self.env.get(name)
+        let func_val = self.env.get_function(name)
+            .map(Value::Function)
+            .or_else(|| self.env.get(name))
             .ok_or_else(|| format!("Undefined function '{}'", name))?;
 
         match func_val {

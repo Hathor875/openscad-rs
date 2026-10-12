@@ -449,14 +449,16 @@ impl Parser {
         let mut inner = pair.clone().into_inner();
         let mut left = Self::parse_expression(inner.next().unwrap())?;
         
-        for right_pair in inner {
-            let right = Self::parse_expression(right_pair)?;
-            left = Expression::BinaryOp(
-                op,
-                Box::new(left),
-                Box::new(right),
-                Self::pest_span_to_span(pair.as_span()),
-            );
+        while let Some(_op_token) = inner.next() {
+            if let Some(right_pair) = inner.next() {
+                let right = Self::parse_expression(right_pair)?;
+                left = Expression::BinaryOp(
+                    op,
+                    Box::new(left),
+                    Box::new(right),
+                    Self::pest_span_to_span(pair.as_span()),
+                );
+            }
         }
         
         Ok(left)
@@ -1055,6 +1057,21 @@ mod tests {
         let result = Parser::parse(input);
         println!("Result: {:?}", result);
         assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_parse_logical_and_or() {
+        let input = "x = true && true;";
+        let parsed = Parser::parse(input).unwrap();
+        if let crate::ast::Statement::Assignment(assign) = &parsed.statements[0] {
+            if let Some(crate::ast::Expression::BinaryOp(op, left, right, _)) = &assign.value {
+                assert_eq!(*op, crate::ast::BinaryOp::LogicalAnd);
+                assert!(matches!(**left, crate::ast::Expression::Literal(crate::ast::LiteralValue::Bool(true), _)));
+                assert!(matches!(**right, crate::ast::Expression::Literal(crate::ast::LiteralValue::Bool(true), _)));
+            } else {
+                panic!("Expected BinaryOp");
+            }
+        }
     }
 }
 

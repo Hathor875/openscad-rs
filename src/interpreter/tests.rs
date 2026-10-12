@@ -946,6 +946,17 @@ mod tests {
         assert_eq!(env.get("v_high"), Some(crate::interpreter::Value::Number(40.0)));
     }
 
+    #[test]
+    fn test_separate_namespaces() {
+        let env = eval_source("
+            function foo(x) = x * 2;
+            foo = 100;
+            y = foo(foo);
+        ").unwrap();
+        assert_eq!(env.get("foo"), Some(crate::interpreter::Value::Number(100.0)));
+        assert_eq!(env.get("y"), Some(crate::interpreter::Value::Number(200.0)));
+    }
+
     fn unique_fixture_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
             "openscad-rust-{}-{}",
