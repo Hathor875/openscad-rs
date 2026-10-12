@@ -58,8 +58,18 @@ impl Evaluator {
             return Ok(Value::Undef);
         }
         Ok(match op {
-            UnaryOp::Negate => Value::Number(-val.as_number()?),
-            UnaryOp::Positive => Value::Number(val.as_number()?),
+            UnaryOp::Negate => match &val {
+                Value::Vector(v) => Value::Vector(
+                    v.iter()
+                        .map(|x| Ok(Value::Number(-x.as_number()?)))
+                        .collect::<Result<Vec<_>, String>>()?,
+                ),
+                _ => Value::Number(-val.as_number()?),
+            },
+            UnaryOp::Positive => match &val {
+                Value::Vector(v) => Value::Vector(v.clone()),
+                _ => Value::Number(val.as_number()?),
+            },
             UnaryOp::Not => Value::Bool(!val.as_bool()),
             UnaryOp::BinaryNot => Value::Number(!(val.as_number()? as i64) as f64),
         })

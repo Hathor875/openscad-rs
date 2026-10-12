@@ -493,8 +493,9 @@ impl Parser {
                 Rule::postfix | Rule::unary => {
                     expr = Some(Self::parse_expression(inner)?);
                 }
-                Rule::Minus | Rule::Bang | Rule::Tilde => {
+                Rule::Plus | Rule::Minus | Rule::Bang | Rule::Tilde => {
                     operators.push(match inner.as_str() {
+                        "+" => UnaryOp::Positive,
                         "-" => UnaryOp::Negate,
                         "!" => UnaryOp::Not,
                         "~" => UnaryOp::BinaryNot,

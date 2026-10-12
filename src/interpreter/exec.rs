@@ -229,10 +229,45 @@ impl Executor {
             requested.to_path_buf()
         };
         if candidate.is_file() {
-            Ok(Self::canonical_path(&candidate)?)
-        } else {
-            Err(format!("Source file '{}' not found", candidate.display()))
+            return Self::canonical_path(&candidate);
         }
+
+        // Fallback library search paths
+        if !requested.is_absolute() {
+            // 1. OPENSCADPATH env variable
+            if let Some(env_paths) = std::env::var_os("OPENSCADPATH") {
+                for lib_dir in std::env::split_paths(&env_paths) {
+                    let cand = lib_dir.join(requested);
+                    if cand.is_file() {
+                        return Self::canonical_path(&cand);
+                    }
+                }
+            }
+
+            // 2. Search ancestor directories for "libraries" or "scad-library/libraries"
+            for stack_path in self.source_stack.iter().rev() {
+                let mut curr = stack_path.parent();
+                while let Some(dir) = curr {
+                    let cand1 = dir.join("libraries").join(requested);
+                    if cand1.is_file() {
+                        return Self::canonical_path(&cand1);
+                    }
+                    let cand2 = dir.join("scad-library").join("libraries").join(requested);
+                    if cand2.is_file() {
+                        return Self::canonical_path(&cand2);
+                    }
+                    curr = dir.parent();
+                }
+            }
+
+            // 3. Current working directory fallback
+            let cand_cwd = Path::new("scad-library/libraries").join(requested);
+            if cand_cwd.is_file() {
+                return Self::canonical_path(&cand_cwd);
+            }
+        }
+
+        Err(format!("Source file '{}' not found", candidate.display()))
     }
 
     fn canonical_path(path: &Path) -> Result<PathBuf, String> {

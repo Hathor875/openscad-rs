@@ -44,7 +44,7 @@ modifier = { "!" | "#" | "%" | "*" }
 _keyword = @{ "include" | "use" | "module" | "function" | "if" | "else" | "let" | "assert" | "echo" | "for" | "each" | "true" | "false" | "undef" }
 
 module_id = {
-    !( _keyword ) ~ identifier
+    !( _keyword ~ !ident_rest ) ~ identifier
     | For
     | Let
     | Assert
@@ -92,7 +92,7 @@ multiplication = {
 power = { unary ~ (Caret ~ power)? }
 
 unary = {
-    (Minus | Bang | Tilde)* ~ postfix
+    (Plus | Minus | Bang | Tilde)* ~ postfix
 }
 
 postfix = {
