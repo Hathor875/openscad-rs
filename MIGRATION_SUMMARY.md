@@ -1,22 +1,23 @@
 # OpenSCAD-to-Rust Migration: Comprehensive Summary
 
 ## 📊 Project Status
-All 69 unit tests pass ✅ | Migration: ~70% complete ✅
+All 87 unit tests pass ✅ | Migration progress: 38.8% full library pass (1,438/3,709 files) ✅
 
-### Library Statistics
+### Library Statistics (Full Library Test - 3,709 files)
 - **Total SCAD files:** 3,709
-- **Generated test files:** 105 (across 10 categories)
-- **Official examples:** ~30 files
+- **Passing Evaluation (EVAL OK):** 1,438 (38.8%) — up from 1,115 (30.1%)
+- **Models generating STL geometry:** 502 (13.5%) — up from 428 (11.5%)
+- **Parse errors:** 988 (down from 1,252, -264 syntax errors resolved)
+- **Crashes / Panics:** 0 (100% stability)
+- **Unit test suite:** 87 tests passing (100% pass rate)
 
 ---
 
-## # Todos
-- [x] Fix ternary operator `?:` in functions (returns undef instead of value)
-- [x] Add support for recursive functions
-- [x] Full support for environment variables `$var` (`$fn`, `$fa`, `$fs`, `$t`)
-- [x] Improve error reporting with precise location info
-- [x] Expand test library with SCAD files comparison
-- [x] Performance optimization
+## # Phases Completed
+- [x] **Phase 1:** Undefined identifier tolerance, special variables (`$preview`, `$layer_height`, view vars), 2D vector transforms, new builtins (`ord`, `rands`, `search`, `version`, `version_num`). Commit: `244ee92`.
+- [x] **Phase 2 & 4:** Vector scalar division, matrix multiplication ($4\times4 \cdot 4\times4$, $4\times4 \cdot \text{vec}$), safe indexing, vector `min`/`max`, 2D module pass-through stubs (`offset`, `projection`). Commit: `345c82d`.
+- [x] **Phase 3:** Pest grammar atomicity for identifiers & numbers, keyword lookaheads, identifiers with leading digits (`123_block`), nested `if/else if`, builtins `chr(vec)`, `cross(2d)`, `unit(vec)`. Commit: `2c868cc`.
+
 
 ---
 
