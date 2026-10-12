@@ -171,6 +171,20 @@ mod tests {
     }
 
     #[test]
+    fn test_invalid_primitive_dimensions_are_rejected() {
+        for input in [
+            "cube([1, 0, 1]);",
+            "sphere(r = -1);",
+            "circle(r = 1, $fn = 2);",
+            "cylinder(h = 1, r = 1, $fs = 0);",
+        ] {
+            let parsed = Parser::parse(input).unwrap();
+            let mut exec = Executor::new(Rc::new(Environment::new()));
+            assert!(exec.execute_source(&parsed).is_err(), "accepted invalid input: {input}");
+        }
+    }
+
+    #[test]
     fn test_2d_primitives_build_planar_meshes() {
         let parsed = Parser::parse("square([2, 3], center = true);").unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));

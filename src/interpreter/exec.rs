@@ -246,6 +246,28 @@ impl Executor {
         ])
     }
 
+    fn validate_tessellation(
+        fn_: Option<f64>,
+        fa: Option<f64>,
+        fs: Option<f64>,
+    ) -> Result<(Option<usize>, Option<f64>, Option<f64>), String> {
+        let fn_ = fn_.map(|value| {
+            if value < 3.0 || value.fract() != 0.0 {
+                Err("$fn must be an integer greater than or equal to 3".to_string())
+            } else {
+                Ok(value as usize)
+            }
+        }).transpose()?;
+        for (name, value) in [("$fa", fa), ("$fs", fs)] {
+            if let Some(value) = value {
+                if value <= 0.0 || !value.is_finite() {
+                    return Err(format!("{name} must be positive"));
+                }
+            }
+        }
+        Ok((fn_, fa, fs))
+    }
+
     fn get_matrix4(&mut self, arguments: &[Assignment]) -> Result<nalgebra::Matrix4<f64>, String> {
         let value = self.get_vector(arguments, "matrix")?
             .ok_or_else(|| "multmatrix requires a 4x4 matrix".to_string())?;
@@ -538,6 +560,9 @@ impl Executor {
                         self.get_arg(arguments, "z")?.unwrap_or(1.0),
                     ]
                 };
+                if size.iter().any(|value| *value <= 0.0 || !value.is_finite()) {
+                    return Err("cube dimensions must be positive and finite".into());
+                }
                 let center = self.get_bool(arguments, "center", false)?;
                 self.current_builder().add_primitive(Primitive::Cube { size, center });
                 Ok(Some(()))
@@ -548,9 +573,14 @@ impl Executor {
                     let d_val = self.get_arg(arguments, "d")?;
                     r_val.or_else(|| d_val.map(|d| d / 2.0)).unwrap_or(1.0)
                 };
-                let fn_ = self.get_arg(arguments, "fn")?.map(|f| f as usize);
-                let fa = self.get_arg(arguments, "fa")?;
-                let fs = self.get_arg(arguments, "fs")?;
+                if r <= 0.0 || !r.is_finite() {
+                    return Err("sphere radius must be positive and finite".into());
+                }
+                let (fn_, fa, fs) = Self::validate_tessellation(
+                    self.get_arg(arguments, "fn")?,
+                    self.get_arg(arguments, "fa")?,
+                    self.get_arg(arguments, "fs")?,
+                )?;
                 self.current_builder().add_primitive(Primitive::Sphere { r, d: None, fn_, fa, fs });
                 Ok(Some(()))
             }
@@ -563,9 +593,11 @@ impl Executor {
                 if h <= 0.0 || r1 < 0.0 || r2 < 0.0 || (r1 == 0.0 && r2 == 0.0) {
                     return Err("cylinder requires positive height and radius".into());
                 }
-                let fn_ = self.get_arg(arguments, "fn")?.map(|value| value as usize);
-                let fa = self.get_arg(arguments, "fa")?;
-                let fs = self.get_arg(arguments, "fs")?;
+                let (fn_, fa, fs) = Self::validate_tessellation(
+                    self.get_arg(arguments, "fn")?,
+                    self.get_arg(arguments, "fa")?,
+                    self.get_arg(arguments, "fs")?,
+                )?;
                 let center = self.get_bool(arguments, "center", false)?;
                 self.current_builder().add_primitive(Primitive::Cylinder {
                     h, r1, r2, d1: None, d2: None, center, fn_, fa, fs,
@@ -581,6 +613,9 @@ impl Executor {
                         self.get_arg(arguments, "y")?.unwrap_or(1.0),
                     ]
                 };
+                if size.iter().any(|value| *value <= 0.0 || !value.is_finite()) {
+                    return Err("square dimensions must be positive and finite".into());
+                }
                 let center = self.get_bool(arguments, "center", false)?;
                 self.current_builder().add_primitive(Primitive::Square { size, center });
                 Ok(Some(()))
@@ -591,9 +626,14 @@ impl Executor {
                     let d_val = self.get_arg(arguments, "d")?;
                     r_val.or_else(|| d_val.map(|d| d / 2.0)).unwrap_or(1.0)
                 };
-                let fn_ = self.get_arg(arguments, "fn")?.map(|f| f as usize);
-                let fa = self.get_arg(arguments, "fa")?;
-                let fs = self.get_arg(arguments, "fs")?;
+                if r <= 0.0 || !r.is_finite() {
+                    return Err("circle radius must be positive and finite".into());
+                }
+                let (fn_, fa, fs) = Self::validate_tessellation(
+                    self.get_arg(arguments, "fn")?,
+                    self.get_arg(arguments, "fa")?,
+                    self.get_arg(arguments, "fs")?,
+                )?;
                 self.current_builder().add_primitive(Primitive::Circle { r, d: None, fn_, fa, fs });
                 Ok(Some(()))
             }
