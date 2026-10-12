@@ -115,7 +115,7 @@ atom = {
 }
 
 anonymous_function = { Function ~ "(" ~ parameters? ~ ")" ~ expression }
-if_expr = { If ~ "(" ~ expression ~ ")" ~ expression ~ (Else ~ expression)? }
+if_expr = { If ~ "(" ~ expression ~ ")" ~ expression ~ (Else ~ (if_expr | expression))? }
 
 let_expr = { Let ~ "(" ~ let_bindings ~ ")" ~ expression }
 

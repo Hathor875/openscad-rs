@@ -617,8 +617,14 @@ impl Parser {
     fn parse_if_expression(pair: Pair<Rule>) -> Result<Expression> {
         let span = Self::pest_span_to_span(pair.as_span());
         let expressions = pair.into_inner()
-            .filter(|inner| inner.as_rule() == Rule::expression)
-            .map(Self::parse_expression)
+            .filter(|inner| matches!(inner.as_rule(), Rule::expression | Rule::if_expr))
+            .map(|inner| {
+                if inner.as_rule() == Rule::if_expr {
+                    Self::parse_if_expression(inner)
+                } else {
+                    Self::parse_expression(inner)
+                }
+            })
             .collect::<Result<Vec<_>>>()?;
         if let [condition, then_expr, else_expr] = expressions.as_slice() {
             Ok(Expression::TernaryOp(
