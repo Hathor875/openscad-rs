@@ -1,26 +1,114 @@
+use eframe::egui;
+use eframe::Frame;
 use openscad_rust::{Parser, Executor, Environment};
-use std::fs;
 use std::rc::Rc;
 
-fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let thread = std::thread::Builder::new()
-        .stack_size(64 * 1024 * 1024)
-        .spawn(move || run(args))
-        .expect("failed to spawn worker thread");
+struct OpenScadApp {
+    source: String,
+    errors: Vec<String>,
+    model_mesh: Option<Vec<u8>>,
+}
 
-    match thread.join().unwrap_or_else(|_| Err("fatal runtime error: thread panicked".into())) {
-        Ok(()) => {}
-        Err(error) => {
-            eprintln!("Error: {error}");
-            std::process::exit(1);
+impl OpenScadApp {
+    fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+        Self {
+            source: String::new(),
+            errors: Vec::new(),
+            model_mesh: None,
+        }
+    }
+
+    fn load_file(&mut self, path: &str) {
+        self.source = match std::fs::read_to_string(path) {
+            Ok(content) => content,
+            Err(e) => {
+                self.errors.push(format!("Failed to read file: {e}"));
+                return;
+            }
+        };
+        self.errors.clear();
+        self.model_mesh = None;
+        self.parse_and_eval();
+    }
+
+    fn parse_and_eval(&mut self) {
+        match Parser::parse_file(&self.source) {
+            Ok(parsed) => {
+                let env = Rc::new(Environment::new());
+                let mut exec = Executor::new(env);
+                match exec.execute_source(&parsed) {
+                    Ok(()) => {
+                        let mesh = exec.build_mesh();
+                        self.errors.clear();
+                        if let Some(mesh) = mesh {
+                            if !mesh.is_empty() {
+                                self.model_mesh = Some(mesh.to_stl().into_bytes());
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        self.errors.push(format!("Evaluation error: {e}"));
+                    }
+                }
+            }
+            Err(e) => {
+                self.errors.push(format!("Parse error: {e}"));
+            }
         }
     }
 }
 
-fn run(args: Vec<String>) -> Result<(), String> {
+impl eframe::App for OpenScadApp {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut Frame) {
+        egui::TopBottomPanel::top("menu").show(ctx, |ui| {
+            egui::menu::bar(ui, |ui| {
+                if ui.button("Open").clicked() {}
+                ui.separator();
+                if ui.button("Run").clicked() {
+                    self.parse_and_eval();
+                }
+                ui.separator();
+                if ui.button("Export STL").clicked() {}
+                ui.separator();
+                if ui.button("Clear").clicked() {
+                    self.errors.clear();
+                    self.model_mesh = None;
+                }
+            });
+        });
+
+        egui::SidePanel::left("side").show(ctx, |ui| {
+            ui.heading("OpenSCAD Rust");
+            ui.label("Rust-based OpenSCAD interpreter");
+        });
+
+        egui::CentralPanel::default().show(ctx, |ui| {
+            ui.horizontal(|ui| {
+                if ui.button("Parse").clicked() {
+                    self.parse_and_eval();
+                }
+                if ui.button("Run").clicked() {
+                    self.parse_and_eval();
+                }
+            });
+            ui.separator();
+            ui.label("SCAD Source Area");
+            if !self.errors.is_empty() {
+                ui.colored_label(egui::Color32::RED, "Errors:");
+                for err in &self.errors {
+                    ui.label(err);
+                }
+            }
+            if self.model_mesh.is_some() {
+                ui.label("Model generated successfully!");
+            }
+        });
+    }
+}
+
+fn run_cli(args: &[String]) -> Result<(), String> {
     if args.iter().any(|arg| arg == "--help" || arg == "-h") {
-        print_usage();
+        println!("Usage: openscad-rust <file.scad> [-o|--output <file.stl|file.obj>] [--binary]");
         return Ok(());
     }
     let input = args.first()
@@ -72,16 +160,40 @@ fn run(args: Vec<String>) -> Result<(), String> {
                 "unsupported output format '.{format}'; use .stl or .obj"
             )),
         };
-        fs::write(output, contents)
+        std::fs::write(output, contents)
             .map_err(|error| format!("failed to write '{output}': {error}"))?;
     }
     Ok(())
 }
 
-fn print_usage() {
-    println!("Usage: openscad-rust <file.scad> [-o|--output <file.stl|file.obj>] [--binary]");
-}
-
 fn usage_error(message: &str) -> String {
     format!("{message}\n\nUsage: openscad-rust <file.scad> [-o|--output <file.stl|file.obj>] [--binary]")
+}
+
+fn main() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+
+    // If CLI arguments provided, run in CLI mode
+    if !args.is_empty() {
+        match run_cli(&args) {
+            Ok(()) => {}
+            Err(e) => {
+                eprintln!("Error: {e}");
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
+    // Otherwise, launch GUI
+    let mut options = eframe::NativeOptions::default();
+    options.viewport.inner_size = Some(egui::vec2(1280.0, 800.0));
+    options.viewport.resizable = Some(true);
+
+    eframe::run_native(
+        "OpenSCAD - Rust",
+        options,
+        Box::new(|_cc| Box::new(OpenScadApp::new(_cc))),
+    )
+    .expect("failed to run eframe");
 }
