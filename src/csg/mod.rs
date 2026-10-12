@@ -45,6 +45,11 @@ pub enum CsgNode {
         height: f64,
         center: bool,
     },
+    RotateExtrude {
+        child: Box<CsgNode>,
+        angle: f64,
+        segments: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -224,6 +229,36 @@ impl Mesh {
             if count_edges == 1 {
                 mesh.faces.push([a, b, b + count]);
                 mesh.faces.push([a, b + count, a + count]);
+            }
+        }
+        mesh.normals = vec![[0.0, 0.0, 1.0]; mesh.vertices.len()];
+        mesh
+    }
+
+    pub fn rotate_extrude(&self, angle: f64, segments: usize) -> Mesh {
+        let segments = segments.max(3);
+        let sweep = angle.to_radians();
+        let mut mesh = Mesh::new();
+        for segment in 0..=segments {
+            let theta = sweep * segment as f64 / segments as f64;
+            let (sin, cos) = theta.sin_cos();
+            for vertex in &self.vertices {
+                mesh.vertices.push([
+                    vertex[0] * cos,
+                    vertex[0] * sin,
+                    vertex[1],
+                ]);
+            }
+        }
+        let count = self.vertices.len();
+        for segment in 0..segments {
+            let start = segment * count;
+            let next = (segment + 1) * count;
+            for face in &self.faces {
+                for &(a, b) in &[(face[0], face[1]), (face[1], face[2]), (face[2], face[0])] {
+                    mesh.faces.push([start + a, start + b, next + b]);
+                    mesh.faces.push([start + a, next + b, next + a]);
+                }
             }
         }
         mesh.normals = vec![[0.0, 0.0, 1.0]; mesh.vertices.len()];
@@ -607,6 +642,9 @@ impl CsgNode {
             CsgNode::Color { child, .. } => child.to_mesh(),
             CsgNode::LinearExtrude { child, height, center } => {
                 child.to_mesh().linear_extrude(*height, *center)
+            }
+            CsgNode::RotateExtrude { child, angle, segments } => {
+                child.to_mesh().rotate_extrude(*angle, *segments)
             }
         }
     }

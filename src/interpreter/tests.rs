@@ -211,6 +211,19 @@ mod tests {
     }
 
     #[test]
+    fn test_rotate_extrude_builds_revolved_mesh() {
+        let input = "rotate_extrude($fn = 8) polygon(points = [[1,0], [2,0], [2,1], [1,1]]);";
+        let parsed = Parser::parse(input).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.vertices.len(), 36);
+        assert_eq!(mesh.faces.len(), 96);
+        assert!(mesh.vertices.iter().any(|vertex| vertex[0] > 1.9));
+        assert!(mesh.vertices.iter().any(|vertex| vertex[0] < -1.9));
+    }
+
+    #[test]
     fn test_include_loads_relative_assignments() {
         let dir = unique_fixture_dir("include");
         fs::create_dir_all(&dir).unwrap();

@@ -470,6 +470,28 @@ impl Executor {
                 }
                 Ok(Some(()))
             }
+            "rotate_extrude" => {
+                let angle = self.get_arg(arguments, "angle")?.unwrap_or(360.0);
+                if angle <= 0.0 || angle > 360.0 {
+                    return Err("rotate_extrude angle must be greater than zero and at most 360".into());
+                }
+                let segments = self.get_arg(arguments, "fn")?
+                    .map(|value| value as usize)
+                    .unwrap_or(32)
+                    .max(3);
+                self.csg_stack.push(CsgBuilder::new());
+                for child in children {
+                    self.execute(child)?;
+                }
+                if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
+                    self.current_builder().union(crate::csg::CsgNode::RotateExtrude {
+                        child: Box::new(child_csg),
+                        angle,
+                        segments,
+                    });
+                }
+                Ok(Some(()))
+            }
             "polyhedron" => {
                 let points = self.get_vector(arguments, "points")?
                     .ok_or_else(|| "polyhedron requires points".to_string())
