@@ -600,6 +600,42 @@ impl Mesh {
         out.push_str("endsolid openscad\n");
         out
     }
+
+    pub fn to_binary_stl(&self) -> Vec<u8> {
+        let valid_faces = self.faces.iter()
+            .filter(|face| self.valid_face(face))
+            .collect::<Vec<_>>();
+        let mut out = vec![0u8; 80];
+        out[..13].copy_from_slice(b"openscad-rust");
+        out.extend_from_slice(&(valid_faces.len() as u32).to_le_bytes());
+        for face in valid_faces {
+            let a = self.vertices[face[0]];
+            let b = self.vertices[face[1]];
+            let c = self.vertices[face[2]];
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let normal = [
+                ab[1] * ac[2] - ab[2] * ac[1],
+                ab[2] * ac[0] - ab[0] * ac[2],
+                ab[0] * ac[1] - ab[1] * ac[0],
+            ];
+            let length = normal.iter().map(|value| value * value).sum::<f64>().sqrt();
+            let normal = if length > 0.0 {
+                [normal[0] / length, normal[1] / length, normal[2] / length]
+            } else {
+                [0.0, 0.0, 1.0]
+            };
+            for value in normal.into_iter()
+                .chain(a)
+                .chain(b)
+                .chain(c)
+            {
+                out.extend_from_slice(&(value as f32).to_le_bytes());
+            }
+            out.extend_from_slice(&0u16.to_le_bytes());
+        }
+        out
+    }
 }
 
 impl Primitive {

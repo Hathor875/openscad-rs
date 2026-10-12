@@ -21,6 +21,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
     }
 
     let mut output = None;
+    let mut binary = false;
     let mut index = 1;
     while index < args.len() {
         match args[index].as_str() {
@@ -30,6 +31,7 @@ fn run(args: Vec<String>) -> Result<(), String> {
                     .ok_or_else(|| usage_error("missing path after --output"))?;
                 output = Some(path);
             }
+            "--binary" => binary = true,
             option => return Err(usage_error(&format!("unknown option '{option}'"))),
         }
         index += 1;
@@ -50,9 +52,13 @@ fn run(args: Vec<String>) -> Result<(), String> {
             return Err(format!("model '{input}' produced no exportable faces"));
         }
         let format = output.rsplit('.').next().unwrap_or_default().to_ascii_lowercase();
+        if binary && format != "stl" {
+            return Err("--binary is only supported for STL output".into());
+        }
         let contents = match format.as_str() {
-            "stl" => mesh.to_stl(),
-            "obj" => mesh.to_obj(),
+            "stl" if binary => mesh.to_binary_stl(),
+            "stl" => mesh.to_stl().into_bytes(),
+            "obj" => mesh.to_obj().into_bytes(),
             _ => return Err(format!(
                 "unsupported output format '.{format}'; use .stl or .obj"
             )),
@@ -64,9 +70,9 @@ fn run(args: Vec<String>) -> Result<(), String> {
 }
 
 fn print_usage() {
-    println!("Usage: openscad-rust <file.scad> [-o|--output <file.stl|file.obj>]");
+    println!("Usage: openscad-rust <file.scad> [-o|--output <file.stl|file.obj>] [--binary]");
 }
 
 fn usage_error(message: &str) -> String {
-    format!("{message}\n\nUsage: openscad-rust <file.scad> [-o|--output <file.stl|file.obj>]")
+    format!("{message}\n\nUsage: openscad-rust <file.scad> [-o|--output <file.stl|file.obj>] [--binary]")
 }
