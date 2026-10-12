@@ -863,6 +863,11 @@ impl Executor {
                     return Err("linear_extrude height must be positive".into());
                 }
                 let center = self.get_bool(arguments, "center", false)?;
+                let twist = self.get_arg(arguments, "twist")?.unwrap_or(0.0);
+                let scale = self.get_arg(arguments, "scale")?.unwrap_or(1.0);
+                if !twist.is_finite() || !scale.is_finite() || scale < 0.0 {
+                    return Err("linear_extrude twist must be finite and scale must be non-negative".into());
+                }
                 self.csg_stack.push(CsgBuilder::new());
                 for child in children {
                     self.execute(child)?;
@@ -872,6 +877,8 @@ impl Executor {
                         child: Box::new(child_csg),
                         height,
                         center,
+                        twist,
+                        scale,
                     });
                 }
                 Ok(Some(()))

@@ -591,6 +591,22 @@ mod tests {
     }
 
     #[test]
+    fn test_linear_extrude_applies_scale_and_twist() {
+        let parsed = Parser::parse(
+            "linear_extrude(height = 2, scale = 2, twist = 90) square([2, 1]);",
+        ).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        let max_z = mesh.vertices.iter().map(|vertex| vertex[2]).fold(f64::NEG_INFINITY, f64::max);
+        assert_eq!(max_z, 2.0);
+        let max_x = mesh.vertices.iter().map(|vertex| vertex[0].abs()).fold(0.0, f64::max);
+        let max_y = mesh.vertices.iter().map(|vertex| vertex[1].abs()).fold(0.0, f64::max);
+        assert!(max_x > 1.9);
+        assert!(max_y > 1.9);
+    }
+
+    #[test]
     fn test_rotate_extrude_builds_revolved_mesh() {
         let input = "rotate_extrude($fn = 8) polygon(points = [[1,0], [2,0], [2,1], [1,1]]);";
         let parsed = Parser::parse(input).unwrap();

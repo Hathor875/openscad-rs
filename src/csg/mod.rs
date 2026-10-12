@@ -44,6 +44,8 @@ pub enum CsgNode {
         child: Box<CsgNode>,
         height: f64,
         center: bool,
+        twist: f64,
+        scale: f64,
     },
     RotateExtrude {
         child: Box<CsgNode>,
@@ -477,11 +479,17 @@ impl Mesh {
 
     }
 
-    pub fn linear_extrude(&self, height: f64, center: bool) -> Mesh {
+    pub fn linear_extrude(&self, height: f64, center: bool, twist: f64, scale: f64) -> Mesh {
         let offset_z = if center { -height / 2.0 } else { 0.0 };
         let mut mesh = Mesh::new();
         mesh.vertices.extend(self.vertices.iter().map(|v| [v[0], v[1], offset_z]));
-        mesh.vertices.extend(self.vertices.iter().map(|v| [v[0], v[1], offset_z + height]));
+        let twist_radians = twist.to_radians();
+        let (sin, cos) = twist_radians.sin_cos();
+        mesh.vertices.extend(self.vertices.iter().map(|v| [
+            scale * (v[0] * cos - v[1] * sin),
+            scale * (v[0] * sin + v[1] * cos),
+            offset_z + height,
+        ]));
         let count = self.vertices.len();
         for face in &self.faces {
             mesh.faces.push([face[2], face[1], face[0]]);
@@ -1193,8 +1201,8 @@ impl CsgNode {
                 Mesh::minkowski(&meshes)
             }
             CsgNode::Color { child, .. } => child.to_mesh(),
-            CsgNode::LinearExtrude { child, height, center } => {
-                child.to_mesh().linear_extrude(*height, *center)
+            CsgNode::LinearExtrude { child, height, center, twist, scale } => {
+                child.to_mesh().linear_extrude(*height, *center, *twist, *scale)
             }
             CsgNode::RotateExtrude { child, angle, segments } => {
                 child.to_mesh().rotate_extrude(*angle, *segments)
