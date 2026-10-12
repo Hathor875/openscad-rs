@@ -136,4 +136,13 @@ mod tests {
             crate::interpreter::Value::Number(4.0),
         ])));
     }
+
+    #[test]
+    fn test_string_escapes() {
+        let env = eval_source(r#"x = "line\n\u{03bb}\x21";"#).unwrap();
+        assert_eq!(
+            env.get("x"),
+            Some(crate::interpreter::Value::String("line\nλ!".to_string()))
+        );
+    }
 }

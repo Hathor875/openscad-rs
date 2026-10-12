@@ -678,7 +678,53 @@ impl Parser {
     fn parse_string(pair: Pair<Rule>) -> Result<String> {
         let text = pair.as_str();
         let content = &text[1..text.len()-1];
-        Ok(content.to_string())
+        let mut value = String::new();
+        let mut chars = content.chars();
+        while let Some(ch) = chars.next() {
+            if ch != '\\' {
+                value.push(ch);
+                continue;
+            }
+
+            let escaped = chars.next()
+                .ok_or_else(|| anyhow::anyhow!("Incomplete string escape"))?;
+            match escaped {
+                'n' => value.push('\n'),
+                't' => value.push('\t'),
+                'r' => value.push('\r'),
+                '\\' => value.push('\\'),
+                '"' => value.push('"'),
+                'x' => {
+                    let hex = chars.by_ref().take(2).collect::<String>();
+                    if hex.len() != 2 {
+                        return Err(anyhow::anyhow!("Invalid hexadecimal string escape"));
+                    }
+                    let byte = u8::from_str_radix(&hex, 16)
+                        .map_err(|_| anyhow::anyhow!("Invalid hexadecimal string escape"))?;
+                    value.push(byte as char);
+                }
+                'u' | 'U' => {
+                    if chars.next() != Some('{') {
+                        return Err(anyhow::anyhow!("Invalid Unicode string escape"));
+                    }
+                    let mut hex = String::new();
+                    loop {
+                        match chars.next() {
+                            Some('}') => break,
+                            Some(c) if c.is_ascii_hexdigit() => hex.push(c),
+                            _ => return Err(anyhow::anyhow!("Invalid Unicode string escape")),
+                        }
+                    }
+                    let codepoint = u32::from_str_radix(&hex, 16)
+                        .map_err(|_| anyhow::anyhow!("Invalid Unicode string escape"))?;
+                    let decoded = char::from_u32(codepoint)
+                        .ok_or_else(|| anyhow::anyhow!("Invalid Unicode code point"))?;
+                    value.push(decoded);
+                }
+                _ => return Err(anyhow::anyhow!("Unknown string escape '\\{}'", escaped)),
+            }
+        }
+        Ok(value)
     }
     
     fn parse_range(pair: Pair<Rule>) -> Result<Expression> {
