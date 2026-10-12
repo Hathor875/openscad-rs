@@ -45,6 +45,12 @@ impl Executor {
         }
         result
     }
+
+    pub fn build_mesh(&self) -> Option<crate::csg::Mesh> {
+        self.csg_stack.first()
+            .and_then(|builder| builder.clone().build())
+            .map(|node| node.to_mesh())
+    }
     
     fn current_builder(&mut self) -> &mut crate::csg::CsgBuilder {
         self.csg_stack.last_mut().unwrap()

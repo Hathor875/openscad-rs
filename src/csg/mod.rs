@@ -202,6 +202,13 @@ impl Mesh {
         let result = m1.difference(&m2);
         Self::manifold_to_mesh(&result)
     }
+
+    pub fn intersection(&self, other: &Mesh) -> Mesh {
+        let m1 = Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
+        let m2 = Self::mesh_to_manifold(other).unwrap_or_else(|_| Self::mesh_to_manifold_simple(other));
+        let result = m1.intersection(&m2);
+        Self::manifold_to_mesh(&result)
+    }
     
     pub fn manifold_to_mesh(m: &Manifold) -> Mesh {
         let (verts, n_props, tri_indices) = m.to_mesh_f64();
@@ -439,6 +446,65 @@ impl CsgBuilder {
     
     pub fn build(self) -> Option<CsgNode> {
         self.root
+    }
+}
+
+impl CsgNode {
+    pub fn to_mesh(&self) -> Mesh {
+        match self {
+            CsgNode::Primitive(primitive) => primitive.to_mesh(),
+            CsgNode::Transform {
+                child,
+                translate,
+                rotate,
+                scale,
+                mirror,
+                matrix,
+            } => {
+                let mut mesh = child.to_mesh();
+                let mut transform = matrix.unwrap_or_else(Matrix4::identity);
+                if let Some(values) = scale {
+                    transform *= Matrix4::new_nonuniform_scaling(&nalgebra::Vector3::new(
+                        values[0], values[1], values[2],
+                    ));
+                }
+                if let Some(values) = rotate {
+                    let rotation = nalgebra::Rotation3::from_euler_angles(
+                        values[0].to_radians(),
+                        values[1].to_radians(),
+                        values[2].to_radians(),
+                    );
+                    transform *= rotation.to_homogeneous();
+                }
+                if let Some(values) = mirror {
+                    transform *= Matrix4::new_nonuniform_scaling(&nalgebra::Vector3::new(
+                        if values[0] == 0.0 { 1.0 } else { -1.0 },
+                        if values[1] == 0.0 { 1.0 } else { -1.0 },
+                        if values[2] == 0.0 { 1.0 } else { -1.0 },
+                    ));
+                }
+                if let Some(values) = translate {
+                    transform *= nalgebra::Translation3::new(
+                        values[0], values[1], values[2],
+                    ).to_homogeneous();
+                }
+                mesh.transform(&transform);
+                mesh
+            }
+            CsgNode::Boolean { op, left, right } => {
+                let left = left.to_mesh();
+                let right = right.to_mesh();
+                match op {
+                    BooleanOp::Union => left.union(&right),
+                    BooleanOp::Difference => left.difference(&right),
+                    BooleanOp::Intersection => left.intersection(&right),
+                }
+            }
+            CsgNode::Hull { children } | CsgNode::Minkowski { children } => {
+                children.first().map(CsgNode::to_mesh).unwrap_or_else(Mesh::new)
+            }
+            CsgNode::Color { child, .. } => child.to_mesh(),
+        }
     }
 }
 
