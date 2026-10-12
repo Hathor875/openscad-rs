@@ -210,7 +210,7 @@ impl Executor {
         let argument = arguments.iter().find(|argument| {
             argument.name == name || argument.name.strip_prefix('$') == Some(name)
         }).or_else(|| {
-            if matches!(name, "size" | "points" | "faces" | "color") {
+            if matches!(name, "size" | "points" | "faces" | "color" | "matrix") {
                 arguments.iter().find(|argument| argument.name.is_empty())
             } else {
                 None
@@ -244,6 +244,33 @@ impl Executor {
             self.get_arg(arguments, "b")?.unwrap_or(1.0),
             self.get_arg(arguments, "a")?.unwrap_or(1.0),
         ])
+    }
+
+    fn get_matrix4(&mut self, arguments: &[Assignment]) -> Result<nalgebra::Matrix4<f64>, String> {
+        let value = self.get_vector(arguments, "matrix")?
+            .ok_or_else(|| "multmatrix requires a 4x4 matrix".to_string())?;
+        let Value::Vector(rows) = value else {
+            return Err("multmatrix requires a 4x4 matrix".into());
+        };
+        if rows.len() != 4 {
+            return Err("multmatrix requires four matrix rows".into());
+        }
+        let mut values = Vec::with_capacity(16);
+        for row in rows {
+            let Value::Vector(row) = row else {
+                return Err("multmatrix requires four matrix rows".into());
+            };
+            if row.len() != 4 {
+                return Err("multmatrix requires four columns per row".into());
+            }
+            for value in row {
+                values.push(value.as_number()?);
+            }
+        }
+        if values.iter().any(|value| !value.is_finite()) {
+            return Err("multmatrix values must be finite".into());
+        }
+        Ok(nalgebra::Matrix4::from_row_slice(&values))
     }
 
     fn value_points(value: Value) -> Result<Vec<[f64; 3]>, String> {
@@ -700,7 +727,19 @@ impl Executor {
                 Ok(Some(()))
             }
             "multmatrix" => {
-                Err("multmatrix is not supported yet".into())
+                let matrix = self.get_matrix4(arguments)?;
+                self.csg_stack.push(CsgBuilder::new());
+                for child in children {
+                    self.execute(child)?;
+                }
+                if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
+                    let mut builder = CsgBuilder::from_node(child_csg);
+                    builder.matrix(matrix);
+                    if let Some(node) = builder.build() {
+                        self.current_builder().union(node);
+                    }
+                }
+                Ok(Some(()))
             }
             "color" => {
                 self.csg_stack.push(CsgBuilder::new());

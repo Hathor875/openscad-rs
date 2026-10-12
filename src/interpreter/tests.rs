@@ -348,11 +348,17 @@ mod tests {
     }
 
     #[test]
-    fn test_multmatrix_reports_unsupported_operation() {
-        let parsed = Parser::parse("multmatrix([[1,0,0,0],[0,1,0,0],[0,0,1,0],[0,0,0,1]]) cube();").unwrap();
+    fn test_multmatrix_transforms_child_geometry() {
+        let parsed = Parser::parse(
+            "multmatrix([[1,0,0,2],[0,1,0,3],[0,0,1,4],[0,0,0,1]]) cube();",
+        ).unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));
-        let error = exec.execute_source(&parsed).unwrap_err();
-        assert!(error.contains("multmatrix is not supported"));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        let min_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::INFINITY, f64::min);
+        let min_y = mesh.vertices.iter().map(|vertex| vertex[1]).fold(f64::INFINITY, f64::min);
+        let min_z = mesh.vertices.iter().map(|vertex| vertex[2]).fold(f64::INFINITY, f64::min);
+        assert_eq!([min_x, min_y, min_z], [2.0, 3.0, 4.0]);
     }
 
     #[test]
