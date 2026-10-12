@@ -327,7 +327,22 @@ impl Evaluator {
                     None => true,
                 };
                 if include {
-                    values.push(evaluator.eval(body)?);
+                    let val = evaluator.eval(body)?;
+                    if matches!(body, Expression::Each { .. }) {
+                        if let Value::Vector(items) = val {
+                            values.extend(items);
+                        } else {
+                            values.push(val);
+                        }
+                    } else if let Expression::If { else_branch, .. } = body {
+                        if else_branch.is_none() && val.is_undef() {
+                            // Filtered out by comprehension if without else
+                        } else {
+                            values.push(val);
+                        }
+                    } else {
+                        values.push(val);
+                    }
                 }
             } else {
                 evaluator.eval_for_bindings(bindings, index + 1, condition, body, values)?;

@@ -902,11 +902,7 @@ impl Parser {
                 _ => {}
             }
         }
-        let (condition, mut body) = match expressions.as_slice() {
-            [body] => (None, body.clone()),
-            [condition, body] => (Some(Box::new(condition.clone())), body.clone()),
-            _ => return Err(anyhow::anyhow!("Missing for body")),
-        };
+        let mut body = expressions.into_iter().next().ok_or_else(|| anyhow::anyhow!("Missing for body"))?;
         if !let_args.is_empty() {
             body = Expression::Let {
                 args: let_args,
@@ -916,7 +912,7 @@ impl Parser {
         }
         Ok(Expression::For {
             args,
-            condition,
+            condition: None,
             body: Box::new(body),
             span,
         })
@@ -978,16 +974,7 @@ impl Parser {
             }
         }
 
-        let mut body = match expressions.as_slice() {
-            [body] => body.clone(),
-            [if_cond, body] => Expression::If {
-                condition: Box::new(if_cond.clone()),
-                then_branch: Box::new(body.clone()),
-                else_branch: None,
-                span,
-            },
-            _ => return Err(anyhow::anyhow!("Missing for_c body")),
-        };
+        let mut body = expressions.into_iter().next().ok_or_else(|| anyhow::anyhow!("Missing for_c body"))?;
 
         if !let_args.is_empty() {
             body = Expression::Let {
