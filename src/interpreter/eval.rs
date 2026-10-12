@@ -162,13 +162,11 @@ impl Evaluator {
                 if left_val.is_undef() || right_val.is_undef() {
                     Value::Undef
                 } else if let (Value::Vector(vec), Value::Number(scalar)) = (&left_val, &right_val) {
-                    if *scalar == 0.0 { return Err("Division by zero".into()); }
                     Value::Vector(vec.iter().map(|item| {
                         Ok(Value::Number(item.as_number()? / scalar))
                     }).collect::<Result<Vec<_>, String>>()?)
                 } else {
                     let r = right_val.as_number()?;
-                    if r == 0.0 { return Err("Division by zero".into()); }
                     Value::Number(left_val.as_number()? / r)
                 }
             }

@@ -45,6 +45,7 @@ impl Builtins {
         functions.insert("str".to_string(), builtin_str as BuiltinFn);
         functions.insert("chr".to_string(), builtin_chr as BuiltinFn);
         functions.insert("search".to_string(), builtin_search as BuiltinFn);
+        functions.insert("lookup".to_string(), builtin_lookup as BuiltinFn);
         functions.insert("version".to_string(), builtin_version as BuiltinFn);
         functions.insert("version_num".to_string(), builtin_version_num as BuiltinFn);
         functions.insert("ident".to_string(), builtin_ident as BuiltinFn);
@@ -595,6 +596,59 @@ fn builtin_search(args: Vec<Value>) -> Result<Value, String> {
             }
         }
     }
+}
+
+fn builtin_lookup(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() < 2 {
+        return Ok(Value::Undef);
+    }
+    let key = match args[0].as_number() {
+        Ok(k) => k,
+        Err(_) => return Ok(Value::Undef),
+    };
+    let Value::Vector(table) = &args[1] else {
+        return Ok(Value::Undef);
+    };
+    if table.is_empty() {
+        return Ok(Value::Undef);
+    }
+
+    let mut pairs: Vec<(f64, f64)> = Vec::new();
+    for item in table {
+        if let Value::Vector(pair) = item {
+            if pair.len() >= 2 {
+                if let (Ok(k), Ok(v)) = (pair[0].as_number(), pair[1].as_number()) {
+                    pairs.push((k, v));
+                }
+            }
+        }
+    }
+    if pairs.is_empty() {
+        return Ok(Value::Undef);
+    }
+
+    pairs.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    if key <= pairs[0].0 {
+        return Ok(Value::Number(pairs[0].1));
+    }
+    if key >= pairs.last().unwrap().0 {
+        return Ok(Value::Number(pairs.last().unwrap().1));
+    }
+
+    for i in 0..pairs.len() - 1 {
+        let (k0, v0) = pairs[i];
+        let (k1, v1) = pairs[i + 1];
+        if key >= k0 && key <= k1 {
+            if (k1 - k0).abs() < f64::EPSILON {
+                return Ok(Value::Number(v0));
+            }
+            let t = (key - k0) / (k1 - k0);
+            return Ok(Value::Number(v0 + t * (v1 - v0)));
+        }
+    }
+
+    Ok(Value::Number(pairs.last().unwrap().1))
 }
 
 

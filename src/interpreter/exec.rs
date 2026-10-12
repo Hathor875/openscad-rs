@@ -388,18 +388,9 @@ impl Executor {
         let Value::Vector(values) = value else {
             return Err("transformation vector must be a vector".into());
         };
-        if values.len() == 2 {
-            let x = if values[0].is_undef() { 0.0 } else { values[0].as_number()? };
-            let y = if values[1].is_undef() { 0.0 } else { values[1].as_number()? };
-            return Ok(Some([x, y, 0.0]));
-        }
-        if values.len() != 3 {
-            return Err("transformation vector must contain two or three values".into());
-        }
-
-        let x = if values[0].is_undef() { 0.0 } else { values[0].as_number()? };
-        let y = if values[1].is_undef() { 0.0 } else { values[1].as_number()? };
-        let z = if values[2].is_undef() { 0.0 } else { values[2].as_number()? };
+        let x = values.get(0).and_then(|v| v.as_number().ok()).unwrap_or(0.0);
+        let y = values.get(1).and_then(|v| v.as_number().ok()).unwrap_or(0.0);
+        let z = values.get(2).and_then(|v| v.as_number().ok()).unwrap_or(0.0);
         Ok(Some([x, y, z]))
     }
 
@@ -846,12 +837,12 @@ impl Executor {
                 let size = if let Some(value) = self.get_vector(arguments, "size")? {
                     match value {
                         Value::Number(s) => [s; 3],
-                        Value::Vector(values) if values.len() == 3 => [
-                            values[0].as_number()?,
-                            values[1].as_number()?,
-                            values[2].as_number()?,
+                        Value::Vector(values) => [
+                            values.get(0).and_then(|v| v.as_number().ok()).unwrap_or(1.0),
+                            values.get(1).and_then(|v| v.as_number().ok()).unwrap_or(1.0),
+                            values.get(2).and_then(|v| v.as_number().ok()).unwrap_or(1.0),
                         ],
-                        _ => return Err("cube size must be a number or a three-element vector".into()),
+                        _ => [1.0, 1.0, 1.0],
                     }
                 } else {
                     [

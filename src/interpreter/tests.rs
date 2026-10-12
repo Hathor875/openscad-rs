@@ -933,6 +933,19 @@ mod tests {
         assert!(matches!(env.get("x"), Some(crate::interpreter::Value::Undef)));
     }
 
+    #[test]
+    fn test_builtin_lookup() {
+        let env = eval_source("
+            table = [[0, 10], [10, 20], [20, 40]];
+            v_low = lookup(-5, table);
+            v_mid = lookup(5, table);
+            v_high = lookup(30, table);
+        ").unwrap();
+        assert_eq!(env.get("v_low"), Some(crate::interpreter::Value::Number(10.0)));
+        assert_eq!(env.get("v_mid"), Some(crate::interpreter::Value::Number(15.0)));
+        assert_eq!(env.get("v_high"), Some(crate::interpreter::Value::Number(40.0)));
+    }
+
     fn unique_fixture_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
             "openscad-rust-{}-{}",
