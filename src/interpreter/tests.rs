@@ -68,6 +68,17 @@ mod tests {
     }
 
     #[test]
+    fn test_module_arguments_and_geometry() {
+        let input = "module plate(size = 2) { cube(size = size); } plate(3);";
+        let parsed = Parser::parse(input).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        let max_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::NEG_INFINITY, f64::max);
+        assert_eq!(max_x, 3.0);
+    }
+
+    #[test]
     fn test_eval_builtin_sin() {
         let input = "x = sin(90);";
         let parsed = Parser::parse(input);

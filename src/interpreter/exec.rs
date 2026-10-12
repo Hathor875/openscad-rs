@@ -296,9 +296,13 @@ impl Executor {
         match module_val {
             Value::Module(module) => {
                 let new_env = Environment::with_parent(self.env.clone());
+                let mut positional = arguments.iter().filter(|argument| argument.name.is_empty());
                 
                 for (param_name, default) in &module.params {
-                    let value = if let Some(arg) = arguments.iter().find(|a| a.name == *param_name) {
+                    let argument = arguments.iter()
+                        .find(|argument| argument.name == *param_name)
+                        .or_else(|| positional.next());
+                    let value = if let Some(arg) = argument {
                         if let Some(expr) = &arg.value {
                             self.eval_expr(expr)?
                         } else {
@@ -319,6 +323,9 @@ impl Executor {
                 
                 for child in children {
                     exec.execute(child)?;
+                }
+                if let Some(node) = exec.csg_stack.into_iter().next().and_then(|builder| builder.build()) {
+                    self.current_builder().union(node);
                 }
                 Ok(())
             }
