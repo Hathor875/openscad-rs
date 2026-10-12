@@ -280,6 +280,32 @@ mod tests {
     }
 
     #[test]
+    fn test_concave_polygon_uses_ear_clipping() {
+        let input = "polygon(points = [[0,0], [3,0], [3,1], [1,1], [1,3], [0,3]]);";
+        let parsed = Parser::parse(input).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.faces.len(), 4);
+        assert!(mesh.faces.iter().all(|face| {
+            let a = mesh.vertices[face[0]];
+            let b = mesh.vertices[face[1]];
+            let c = mesh.vertices[face[2]];
+            ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs() > 0.0
+        }));
+    }
+
+    #[test]
+    fn test_polygon_holes_report_unsupported_geometry() {
+        let parsed = Parser::parse(
+            "polygon(points = [[0,0], [4,0], [4,4], [0,4], [1,1], [1,2], [2,2], [2,1]], paths = [[0,1,2,3], [4,5,6,7]]);",
+        ).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        let error = exec.execute_source(&parsed).unwrap_err();
+        assert!(error.contains("holes are not supported"));
+    }
+
+    #[test]
     fn test_linear_extrude_builds_solid_mesh() {
         let input = "linear_extrude(height = 3) polygon(points = [[0,0], [2,0], [2,1], [0,1]]);";
         let parsed = Parser::parse(input).unwrap();

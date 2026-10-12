@@ -474,6 +474,63 @@ impl Mesh {
 }
 
 impl Primitive {
+    fn triangulate_polygon(points: &[[f64; 2]], path: &[usize]) -> Vec<[usize; 3]> {
+        if path.len() < 3 {
+            return Vec::new();
+        }
+        let area: f64 = path.iter().enumerate().map(|(index, &current)| {
+            let next = path[(index + 1) % path.len()];
+            points[current][0] * points[next][1] - points[next][0] * points[current][1]
+        }).sum();
+        let mut remaining = path.to_vec();
+        if area < 0.0 {
+            remaining.reverse();
+        }
+        let mut triangles = Vec::with_capacity(path.len() - 2);
+        while remaining.len() > 3 {
+            let mut clipped = false;
+            for index in 0..remaining.len() {
+                let previous = remaining[(index + remaining.len() - 1) % remaining.len()];
+                let current = remaining[index];
+                let next = remaining[(index + 1) % remaining.len()];
+                let cross = (points[current][0] - points[previous][0])
+                    * (points[next][1] - points[previous][1])
+                    - (points[current][1] - points[previous][1])
+                    * (points[next][0] - points[previous][0]);
+                if cross <= 0.0 {
+                    continue;
+                }
+                let inside = remaining.iter().any(|&candidate| {
+                    candidate != previous && candidate != current && candidate != next
+                        && Self::point_in_triangle(points[candidate], points[previous], points[current], points[next])
+                });
+                if !inside {
+                    triangles.push([previous, current, next]);
+                    remaining.remove(index);
+                    clipped = true;
+                    break;
+                }
+            }
+            if !clipped {
+                return Vec::new();
+            }
+        }
+        triangles.push([remaining[0], remaining[1], remaining[2]]);
+        triangles
+    }
+
+    fn point_in_triangle(point: [f64; 2], a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> bool {
+        let sign = |p1: [f64; 2], p2: [f64; 2], p3: [f64; 2]| {
+            (p1[0] - p3[0]) * (p2[1] - p3[1]) - (p2[0] - p3[0]) * (p1[1] - p3[1])
+        };
+        let d1 = sign(point, a, b);
+        let d2 = sign(point, b, c);
+        let d3 = sign(point, c, a);
+        let has_negative = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
+        let has_positive = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
+        !(has_negative && has_positive)
+    }
+
     fn radial_segments(
         radius: f64,
         fn_: Option<usize>,
@@ -529,12 +586,7 @@ impl Primitive {
                     normals: vec![[0.0, 0.0, 1.0]; points.len()],
                 };
                 for path in paths {
-                    if path.len() < 3 {
-                        continue;
-                    }
-                    for index in 1..path.len() - 1 {
-                        mesh.faces.push([path[0], path[index], path[index + 1]]);
-                    }
+                    mesh.faces.extend(Self::triangulate_polygon(points, path));
                 }
                 mesh
             }
