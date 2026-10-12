@@ -317,6 +317,23 @@ impl Mesh {
         }
         mesh
     }
+
+    pub fn minkowski(meshes: &[Mesh]) -> Self {
+        let Some(first) = meshes.first() else {
+            return Mesh::new();
+        };
+        let mut points = first.vertices.clone();
+        for mesh in meshes.iter().skip(1) {
+            points = points.iter().flat_map(|left| {
+                mesh.vertices.iter().map(move |right| [
+                    left[0] + right[0],
+                    left[1] + right[1],
+                    left[2] + right[2],
+                ])
+            }).collect();
+        }
+        Mesh::convex_hull(&points)
+    }
     
     pub fn cylinder(h: f64, r1: f64, r2: f64, segments: usize, center: bool) -> Self {
         let mut mesh = Mesh::new();
@@ -877,7 +894,8 @@ impl CsgNode {
                 Mesh::convex_hull(&points)
             }
             CsgNode::Minkowski { children } => {
-                children.first().map(CsgNode::to_mesh).unwrap_or_else(Mesh::new)
+                let meshes = children.iter().map(CsgNode::to_mesh).collect::<Vec<_>>();
+                Mesh::minkowski(&meshes)
             }
             CsgNode::Color { child, .. } => child.to_mesh(),
             CsgNode::LinearExtrude { child, height, center } => {

@@ -390,6 +390,27 @@ mod tests {
     }
 
     #[test]
+    fn test_minkowski_combines_child_extents() {
+        let mesh = crate::csg::CsgNode::Minkowski {
+            children: vec![
+                crate::csg::CsgNode::Primitive(crate::csg::Primitive::Cube {
+                    size: [2.0, 2.0, 2.0],
+                    center: false,
+                }),
+                crate::csg::CsgNode::Primitive(crate::csg::Primitive::Cube {
+                    size: [1.0, 1.0, 1.0],
+                    center: false,
+                }),
+            ],
+        }.to_mesh();
+        let max_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::NEG_INFINITY, f64::max);
+        let max_y = mesh.vertices.iter().map(|vertex| vertex[1]).fold(f64::NEG_INFINITY, f64::max);
+        let max_z = mesh.vertices.iter().map(|vertex| vertex[2]).fold(f64::NEG_INFINITY, f64::max);
+        assert_eq!([max_x, max_y, max_z], [3.0, 3.0, 3.0]);
+        assert!(!mesh.faces.is_empty());
+    }
+
+    #[test]
     fn test_linear_extrude_builds_solid_mesh() {
         let input = "linear_extrude(height = 3) polygon(points = [[0,0], [2,0], [2,1], [0,1]]);";
         let parsed = Parser::parse(input).unwrap();
