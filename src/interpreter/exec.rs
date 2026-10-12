@@ -48,40 +48,27 @@ impl Executor {
         }
 
         let result = (|| {
-            let root_source = self.source_stack.len() == 1;
-            if root_source {
-                for stmt in &source.statements {
-                    match stmt {
-                        Statement::ModuleDef { name, params, body, .. } =>
-                            self.exec_module_def(name, params, body, &ModuleModifiers::default())?,
-                        Statement::FunctionDef { name, params, body, .. } =>
-                            self.exec_function_def(name, params, body)?,
-                        _ => {}
-                    }
+            self.hoist_definitions(&source.statements)?;
+            for stmt in &source.statements {
+                if matches!(stmt, Statement::Include(_, _) | Statement::Use(_, _)) {
+                    self.execute(stmt)?;
                 }
-                for stmt in &source.statements {
-                    if matches!(stmt, Statement::Include(_, _) | Statement::Use(_, _)) {
-                        self.execute(stmt)?;
-                    }
-                }
-                for stmt in &source.statements {
-                    if let Statement::Assignment(assign) = stmt {
-                        self.exec_assignment(assign)?;
-                    }
-                }
-                source.statements.iter()
-                    .filter(|stmt| !matches!(
-                        stmt,
-                        Statement::Assignment(_)
-                            | Statement::ModuleDef { .. }
-                            | Statement::FunctionDef { .. }
-                            | Statement::Include(_, _)
-                            | Statement::Use(_, _)
-                    ))
-                    .try_for_each(|stmt| self.execute(stmt).map(|_| ()))
-            } else {
-                source.statements.iter().try_for_each(|stmt| self.execute(stmt).map(|_| ()))
             }
+            for stmt in &source.statements {
+                if let Statement::Assignment(assign) = stmt {
+                    self.exec_assignment(assign)?;
+                }
+            }
+            source.statements.iter()
+                .filter(|stmt| !matches!(
+                    stmt,
+                    Statement::Assignment(_)
+                        | Statement::ModuleDef { .. }
+                        | Statement::FunctionDef { .. }
+                        | Statement::Include(_, _)
+                        | Statement::Use(_, _)
+                ))
+                .try_for_each(|stmt| self.execute(stmt).map(|_| ()))
         })();
 
         if let Some(path) = path {
@@ -202,6 +189,24 @@ impl Executor {
         }
     }
 
+    fn hoist_definitions(&mut self, statements: &[Statement]) -> Result<(), String> {
+        for stmt in statements {
+            match stmt {
+                Statement::ModuleDef { name, params, body, .. } => {
+                    self.exec_module_def(name, params, body, &ModuleModifiers::default())?;
+                }
+                Statement::FunctionDef { name, params, body, .. } => {
+                    self.exec_function_def(name, params, body)?;
+                }
+                Statement::Block { statements, .. } => {
+                    self.hoist_definitions(statements)?;
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
     fn exec_source_directive(&mut self, path: &str, include_body: bool) -> Result<(), String> {
         let resolved = self.resolve_source_path(path)?;
         let source = crate::parser::Parser::parse_file(&resolved)
@@ -211,10 +216,11 @@ impl Executor {
             self.execute_source(&source)
         } else {
             for statement in &source.statements {
-                if matches!(statement, Statement::FunctionDef { .. } | Statement::ModuleDef { .. }) {
+                if matches!(statement, Statement::Include(_, _)) {
                     self.execute(statement)?;
                 }
             }
+            self.hoist_definitions(&source.statements)?;
             Ok(())
         }
     }
@@ -725,9 +731,12 @@ impl Executor {
                 }
                 
                 let mut exec = Executor::with_context(Rc::new(new_env), self.source_stack.clone(), self.loading.clone());
+                exec.hoist_definitions(&module.body)?;
 
                 for stmt in &module.body {
-                    exec.execute_with_forwarded_children(stmt, children)?;
+                    if !matches!(stmt, Statement::FunctionDef { .. } | Statement::ModuleDef { .. }) {
+                        exec.execute_with_forwarded_children(stmt, children)?;
+                    }
                 }
                 
                 if !Self::contains_children_call(&module.body) {
