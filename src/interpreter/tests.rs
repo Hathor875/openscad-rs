@@ -31,6 +31,20 @@ mod tests {
     }
 
     #[test]
+    fn test_comparison_operators_after_function_calls() {
+        let parsed = Parser::parse("x = version_num() >= 20210100;").unwrap();
+        assert_eq!(parsed.statements.len(), 1);
+    }
+
+    #[test]
+    fn test_version_num_and_assert_module() {
+        let parsed = Parser::parse("assert(version_num() >= 20210100); cube(1);").unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        assert!(!exec.build_mesh().unwrap().is_empty());
+    }
+
+    #[test]
     fn test_eval_vector() {
         let input = "x = [1, 2, 3];";
         let env = eval_source(input).unwrap();

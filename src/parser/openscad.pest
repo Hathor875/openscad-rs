@@ -71,7 +71,7 @@ equality = {
 }
 
 comparison = {
-    binary_or ~ ((Lt | Gt | Le | Ge) ~ binary_or)*
+    binary_or ~ ((Le | Ge | Lt | Gt) ~ binary_or)*
 }
 
 binary_or = { binary_and ~ (Pipe ~ binary_and)* }

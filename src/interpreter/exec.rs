@@ -708,6 +708,18 @@ impl Executor {
         // let center_bool = self.get_bool(arguments, "center", false)?;
         
         match name {
+            "assert" => {
+                let condition = arguments.first()
+                    .and_then(|argument| argument.value.as_ref())
+                    .map(|expression| self.eval_expr(expression))
+                    .transpose()?
+                    .map(|value| value.as_bool())
+                    .unwrap_or(false);
+                if !condition {
+                    return Err("assertion failed".into());
+                }
+                Ok(Some(()))
+            }
             "echo" => {
                 let mut output = Vec::new();
                 for argument in arguments {

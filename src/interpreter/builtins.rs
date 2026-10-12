@@ -43,6 +43,7 @@ impl Builtins {
         functions.insert("chr".to_string(), builtin_chr as BuiltinFn);
         functions.insert("search".to_string(), builtin_search as BuiltinFn);
         functions.insert("version".to_string(), builtin_version as BuiltinFn);
+        functions.insert("version_num".to_string(), builtin_version_num as BuiltinFn);
         
         functions.insert("undef".to_string(), builtin_undef as BuiltinFn);
         functions.insert("is_undef".to_string(), builtin_is_undef as BuiltinFn);
@@ -249,6 +250,13 @@ fn builtin_version(args: Vec<Value>) -> Result<Value, String> {
         Value::Number(0.0),
         Value::Number(0.0),
     ]))
+}
+
+fn builtin_version_num(args: Vec<Value>) -> Result<Value, String> {
+    if !args.is_empty() {
+        return Err("version_num expects no arguments".into());
+    }
+    Ok(Value::Number(20240100.0))
 }
 
 fn builtin_undef(args: Vec<Value>) -> Result<Value, String> {
