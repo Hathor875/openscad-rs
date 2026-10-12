@@ -59,6 +59,12 @@ impl Builtins {
         functions.insert("is_nan".to_string(), builtin_is_nan as BuiltinFn);
         functions.insert("is_def".to_string(), builtin_is_def as BuiltinFn);
         functions.insert("last".to_string(), builtin_last as BuiltinFn);
+        functions.insert("default".to_string(), builtin_default as BuiltinFn);
+        functions.insert("concat".to_string(), builtin_concat as BuiltinFn);
+        functions.insert("select".to_string(), builtin_select as BuiltinFn);
+        functions.insert("posmod".to_string(), builtin_posmod as BuiltinFn);
+        functions.insert("ord".to_string(), builtin_ord as BuiltinFn);
+        functions.insert("rands".to_string(), builtin_rands as BuiltinFn);
         
         Self { functions }
     }
@@ -238,24 +244,96 @@ fn builtin_chr(args: Vec<Value>) -> Result<Value, String> {
     Ok(Value::String(c.to_string()))
 }
 
+fn builtin_ord(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 1 {
+        return Err("ord expects 1 argument".into());
+    }
+    let s = args[0].as_string()?;
+    if s.is_empty() {
+        return Err("ord expects a non-empty string".into());
+    }
+    let code = s.chars().next().unwrap() as u32;
+    Ok(Value::Number(code as f64))
+}
+
+fn builtin_rands(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() < 3 || args.len() > 4 {
+        return Err("rands expects 3 or 4 arguments".into());
+    }
+    let min = args[0].as_number()?;
+    let max = args[1].as_number()?;
+    let count = args[2].as_number()?;
+
+    let mut state: u64 = if args.len() == 4 {
+        args[3].as_number()? as u64
+    } else {
+        123456789u64
+    };
+
+    fn xorshift64(state: &mut u64) -> u64 {
+        *state ^= *state >> 12;
+        *state ^= *state << 25;
+        *state ^= *state >> 27;
+        (*state).wrapping_mul(0x2545F4914f6cdd1d)
+    }
+
+    let count = count.trunc().max(0.0) as usize;
+    let mut result = Vec::new();
+    for _ in 0..count {
+        let r = xorshift64(&mut state) as f64 / (u64::MAX as f64);
+        let value = min + r * (max - min);
+        result.push(Value::Number(value));
+    }
+    Ok(Value::Vector(result))
+}
+
 fn builtin_search(args: Vec<Value>) -> Result<Value, String> {
     if args.len() < 2 || args.len() > 3 { return Err("search expects 2 or 3 arguments".into()); }
     let pattern = args[0].as_string()?;
-    let text = args[1].as_string()?;
-    let _case_insensitive = args.get(2).map(|v| v.as_bool()).unwrap_or(false);
+    let text = &args[1];
     
-    if let Some(pos) = text.find(&pattern) {
-        Ok(Value::Number(pos as f64))
-    } else {
-        Ok(Value::Undef)
+    match text {
+        Value::String(s) => {
+            let _case_insensitive = args.get(2).map(|v| v.as_bool()).unwrap_or(false);
+            
+            if let Some(pos) = s.find(&pattern) {
+                Ok(Value::Number(pos as f64))
+            } else {
+                Ok(Value::Undef)
+            }
+        }
+        Value::Vector(vec) => {
+            let case_insensitive = args.get(2).map(|v| v.as_bool()).unwrap_or(false);
+            let mut indices: Vec<Value> = Vec::new();
+            for (i, element) in vec.iter().enumerate() {
+                let element_str = element.as_string();
+                if let Ok(es) = element_str {
+                    if case_insensitive {
+                        if es.to_lowercase().contains(&pattern.to_lowercase()) {
+                            indices.push(Value::Number(i as f64));
+                        }
+                    } else if es.contains(&pattern) {
+                        indices.push(Value::Number(i as f64));
+                    }
+                }
+            }
+            if indices.is_empty() {
+                Ok(Value::Undef)
+            } else if indices.len() == 1 {
+                Ok(indices[0].clone())
+            } else {
+                Ok(Value::Vector(indices))
+            }
+        }
+        _ => Err("search expects string or vector as second argument".into()),
     }
 }
 
 fn builtin_version(args: Vec<Value>) -> Result<Value, String> {
     if !args.is_empty() { return Err("version expects no arguments".into()); }
     Ok(Value::Vector(vec![
-        Value::Number(2024.01),
-        Value::Number(0.0),
+        Value::Number(2021.0),
+        Value::Number(1.0),
         Value::Number(0.0),
     ]))
 }
@@ -265,7 +343,7 @@ fn builtin_version_num(args: Vec<Value>) -> Result<Value, String> {
         return Err("version_num expects no arguments".into());
     }
 
-    Ok(Value::Number(20240100.0))
+    Ok(Value::Number(20210100.0))
 }
 
 fn builtin_ident(args: Vec<Value>) -> Result<Value, String> {
@@ -337,4 +415,72 @@ fn builtin_last(args: Vec<Value>) -> Result<Value, String> {
         Value::Vector(values) => values.last().cloned().ok_or_else(|| "last expects a non-empty list".into()),
         _ => Err("last expects a list".into()),
     }
+}
+
+fn builtin_default(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() != 2 { return Err("default expects 2 arguments".into()); }
+    Ok(if args[0].is_undef() { args[1].clone() } else { args[0].clone() })
+}
+
+fn builtin_concat(args: Vec<Value>) -> Result<Value, String> {
+    let mut result = Vec::new();
+    for value in args {
+        match value {
+            Value::Vector(values) => result.extend(values),
+            value => result.push(value),
+        }
+    }
+    Ok(Value::Vector(result))
+}
+
+fn builtin_select(args: Vec<Value>) -> Result<Value, String> {
+    if args.len() < 2 { return Err("select expects a list and index".into()); }
+    let values = match &args[0] {
+        Value::Vector(values) => values,
+        _ => return Err("select expects a list as its first argument".into()),
+    };
+    let index = |value: &Value| -> Result<isize, String> {
+        Ok(value.as_number()?.trunc() as isize)
+    };
+    let get = |position: isize| -> Result<Value, String> {
+        let position = if position < 0 {
+            values.len() as isize + position
+        } else {
+            position
+        };
+        values.get(position as usize)
+            .cloned()
+            .ok_or_else(|| "select index out of bounds".to_string())
+    };
+    if args.len() == 2 {
+        return match &args[1] {
+            Value::Vector(indices) => Ok(Value::Vector(
+                indices
+                    .iter()
+                    .map(|value| get(index(value)?))
+                    .collect::<Result<Vec<_>, _>>()?,
+            )),
+            value => get(index(value)?),
+        };
+    }
+    if args.len() == 3 {
+        let start = index(&args[1])?;
+        let end = index(&args[2])?;
+        let step = if start <= end { 1 } else { -1 };
+        let mut result = Vec::new();
+        let mut current = start;
+        loop {
+            result.push(get(current)?);
+            if current == end { break; }
+            current += step;
+        }
+        return Ok(Value::Vector(result));
+    }
+    Err("select expects 2 or 3 arguments".into())
+}
+
+fn builtin_posmod(args: Vec<Value>) -> Result<Value, String> {
+    let values = expect_num(&args, 2)?;
+    if values[1] == 0.0 { return Err("posmod divisor cannot be zero".into()); }
+    Ok(Value::Number(values[0].rem_euclid(values[1].abs())))
 }

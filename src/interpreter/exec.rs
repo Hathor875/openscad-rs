@@ -286,6 +286,10 @@ impl Executor {
         };
         match self.eval_expr(expression)? {
             Value::String(value) => Ok(Some(value)),
+            Value::Vector(values) if values.len() == 1 => match &values[0] {
+                Value::String(value) => Ok(Some(value.clone())),
+                _ => Err(format!("{name} must be a string")),
+            },
             _ => Err(format!("{name} must be a string")),
         }
     }
@@ -317,8 +321,15 @@ impl Executor {
         let Value::Vector(values) = value else {
             return Err("transformation vector must be a vector".into());
         };
+        if values.len() == 2 {
+            return Ok(Some([
+                values[0].as_number()?,
+                values[1].as_number()?,
+                0.0,
+            ]));
+        }
         if values.len() != 3 {
-            return Err("transformation vector must contain three values".into());
+            return Err("transformation vector must contain two or three values".into());
         }
 
         Ok(Some([
@@ -392,7 +403,7 @@ impl Executor {
         fa: Option<f64>,
         fs: Option<f64>,
     ) -> Result<(Option<usize>, Option<f64>, Option<f64>), String> {
-        let fn_ = fn_.map(|value| {
+        let fn_ = fn_.filter(|&v| v > 0.0).map(|value| {
             if value < 3.0 || value.fract() != 0.0 {
                 Err("$fn must be an integer greater than or equal to 3".to_string())
             } else {
@@ -1013,7 +1024,12 @@ impl Executor {
                             values[1].as_number()?,
                             values[2].as_number()?,
                         ],
-                        _ => return Err("scale requires a scalar or three-element vector".into()),
+                        Value::Vector(values) if values.len() == 2 => [
+                            values[0].as_number()?,
+                            values[1].as_number()?,
+                            1.0,
+                        ],
+                        _ => return Err("scale requires a scalar or vector".into()),
                     }
                 } else {
                     [

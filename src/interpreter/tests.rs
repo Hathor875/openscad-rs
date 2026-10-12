@@ -1,7 +1,7 @@
 #[cfg(test)]
 mod tests {
     use crate::parser::Parser;
-    use crate::interpreter::{Executor, Environment};
+    use crate::interpreter::{Executor, Environment, Value};
     use std::rc::Rc;
     use std::fs;
     use std::path::PathBuf;
@@ -766,6 +766,98 @@ mod tests {
         assert!(error.contains("Cyclic source include"));
 
         fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn test_builtin_rands_with_seed() {
+        let env1 = eval_source("x = rands(0, 10, 3, 42);").unwrap();
+        let env2 = eval_source("x = rands(0, 10, 3, 42);").unwrap();
+        assert_eq!(
+            env1.get("x"),
+            env2.get("x"),
+            "rands with same seed should produce identical results"
+        );
+    }
+
+    #[test]
+    fn test_builtin_ord() {
+        let env = eval_source("x = ord(\"A\");").unwrap();
+        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Number(65.0)));
+
+        let env = eval_source("x = ord(\"hello\");").unwrap();
+        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Number(104.0)));
+
+        let result = eval_source("x = ord(\"\");").unwrap_err();
+        assert!(result.contains("non-empty"));
+    }
+
+    #[test]
+    fn test_builtin_version() {
+        let env = eval_source("x = version();").unwrap();
+        assert!(matches!(env.get("x"), Some(crate::interpreter::Value::Vector(_))));
+    }
+
+    #[test]
+    fn test_builtin_version_num() {
+        let env = eval_source("x = version_num();").unwrap();
+        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Number(20210100.0)));
+    }
+
+    #[test]
+    fn test_builtin_search_string() {
+        let env = eval_source("x = search(\"an\", \"banana\");").unwrap();
+        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Number(1.0)));
+
+        let env = eval_source("x = search(\"z\", \"banana\");").unwrap();
+        assert!(matches!(env.get("x"), Some(crate::interpreter::Value::Undef)));
+    }
+
+    #[test]
+    fn test_builtin_search_vector() {
+        let env = eval_source("x = search(\"apple\", [\"banana\", \"apple\", \"cherry\"]);").unwrap();
+        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Number(1.0)));
+
+        let env = eval_source("x = search(\"z\", [\"banana\", \"apple\", \"cherry\"]);").unwrap();
+        assert!(matches!(env.get("x"), Some(crate::interpreter::Value::Undef)));
+
+        let env = eval_source("x = search(\"a\", [\"banana\", \"apple\", \"cherry\"]);").unwrap();
+        if let Some(val) = env.get("x") {
+            if let crate::interpreter::Value::Vector(vec) = val {
+                assert_eq!(vec.len(), 2);
+                assert_eq!(vec[0], crate::interpreter::Value::Number(0.0));
+                assert_eq!(vec[1], crate::interpreter::Value::Number(1.0));
+            }
+        }
+    }
+
+    #[test]
+    fn test_phase1_undef_and_defaults() {
+        let parsed = Parser::parse("
+            x = non_existent_var;
+            y = 1 + x;
+            is_u = is_undef(non_existent_var);
+            p = $preview;
+            lh = $layer_height;
+        ").unwrap();
+        let env = Rc::new(Environment::new());
+        let mut exec = Executor::new(env.clone());
+        exec.execute_source(&parsed).unwrap();
+        assert_eq!(env.get("x").unwrap(), Value::Undef);
+        assert_eq!(env.get("y").unwrap(), Value::Undef);
+        assert_eq!(env.get("is_u").unwrap(), Value::Bool(true));
+        assert_eq!(env.get("p").unwrap(), Value::Bool(false));
+        assert_eq!(env.get("lh").unwrap(), Value::Number(0.2));
+    }
+
+    #[test]
+    fn test_phase1_2d_vector_transforms() {
+        let parsed = Parser::parse("
+            translate([10, 20]) scale([2, 3]) cube([1, 1, 1]);
+        ").unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert!(!mesh.is_empty());
     }
 
     fn unique_fixture_dir(name: &str) -> PathBuf {

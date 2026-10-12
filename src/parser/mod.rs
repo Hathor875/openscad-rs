@@ -385,15 +385,39 @@ impl Parser {
             Rule::ternary => {
                 let condition = Self::parse_expression(inner.next().unwrap())?;
                 if let Some(then_expr) = inner.next() {
-                    let then_expr = Self::parse_expression(then_expr)?;
-                    let else_expr = Self::parse_expression(inner.next().unwrap())?;
-                    let span = Self::pest_span_to_span(pair.as_span());
-                    Ok(Expression::TernaryOp(
-                        Box::new(condition),
-                        Box::new(then_expr),
-                        Box::new(else_expr),
-                        span,
-                    ))
+                    // Handle then expression - might be Question token (the ? separator)
+                    let then_expr = if then_expr.as_rule() == Rule::Question {
+                        // Skip Question token, parse actual then expression
+                        if let Some(actual_then) = inner.next() {
+                            Self::parse_expression(actual_then)?
+                        } else {
+                            return Ok(condition);
+                        }
+                    } else {
+                        Self::parse_expression(then_expr)?
+                    };
+                    // Handle else expression - might be Question token (the : separator context)
+                    if let Some(else_expr_pair) = inner.next() {
+                        let else_expr = if else_expr_pair.as_rule() == Rule::Question {
+                            // Skip Question token, parse actual else expression
+                            if let Some(actual_else) = inner.next() {
+                                Self::parse_expression(actual_else)?
+                            } else {
+                                return Ok(condition);
+                            }
+                        } else {
+                            Self::parse_expression(else_expr_pair)?
+                        };
+                        let span = Self::pest_span_to_span(pair.as_span());
+                        Ok(Expression::TernaryOp(
+                            Box::new(condition),
+                            Box::new(then_expr),
+                            Box::new(else_expr),
+                            span,
+                        ))
+                    } else {
+                        Ok(condition)
+                    }
                 } else {
                     Ok(condition)
                 }

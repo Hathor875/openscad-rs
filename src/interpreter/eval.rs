@@ -34,6 +34,7 @@ impl Evaluator {
             Expression::Assert { args, body, .. } => self.eval_assert(args, body.as_deref()),
             Expression::Echo { args, .. } => self.eval_echo(args),
             Expression::For { args, condition, body, .. } => self.eval_for(args, condition.as_deref(), body),
+            Expression::ForC { init, condition, update, body, .. } => self.eval_for_c(init, condition.as_deref(), update, body),
             Expression::Each { body, .. } => self.eval_each(body),
         }
     }
@@ -48,14 +49,17 @@ impl Evaluator {
     }
 
     fn eval_identifier(&self, name: &str) -> Result<Value, String> {
-        self.env.get(name)
-            .ok_or_else(|| format!("Undefined variable '{}'", name))
+        Ok(self.env.get(name).unwrap_or(Value::Undef))
     }
 
     fn eval_unary(&mut self, op: &UnaryOp, expr: &Expression) -> Result<Value, String> {
         let val = self.eval(expr)?;
+        if val.is_undef() {
+            return Ok(Value::Undef);
+        }
         Ok(match op {
             UnaryOp::Negate => Value::Number(-val.as_number()?),
+            UnaryOp::Positive => Value::Number(val.as_number()?),
             UnaryOp::Not => Value::Bool(!val.as_bool()),
             UnaryOp::BinaryNot => Value::Number(!(val.as_number()? as i64) as f64),
         })
@@ -65,7 +69,6 @@ impl Evaluator {
         let short_circuit = matches!(op, BinaryOp::LogicalAnd | BinaryOp::LogicalOr);
         
         let left_val = self.eval(left)?;
-        // eprintln!("DEBUG eval_binary: op={:?}, left_val={:?}", op, left_val);
         
         if short_circuit {
             let left_bool = left_val.as_bool();
@@ -78,53 +81,119 @@ impl Evaluator {
         }
         
         let right_val = self.eval(right)?;
-        // eprintln!("DEBUG eval_binary: op={:?}, right_val={:?}", op, right_val);
 
         Ok(match op {
-            BinaryOp::Plus => match (left_val, right_val) {
+            BinaryOp::Plus => match (&left_val, &right_val) {
+                (Value::Undef, _) | (_, Value::Undef) => Value::Undef,
                 (Value::Vector(left), Value::Vector(right)) if left.len() == right.len() =>
-                    Value::Vector(left.into_iter().zip(right).map(|(a, b)| {
+                    Value::Vector(left.iter().zip(right).map(|(a, b)| {
                         Ok(Value::Number(a.as_number()? + b.as_number()?))
                     }).collect::<Result<Vec<_>, String>>()?),
-                (left, right) => Value::Number(left.as_number()? + right.as_number()?),
+                _ => Value::Number(left_val.as_number()? + right_val.as_number()?),
             },
-            BinaryOp::Minus => match (left_val, right_val) {
+            BinaryOp::Minus => match (&left_val, &right_val) {
+                (Value::Undef, _) | (_, Value::Undef) => Value::Undef,
                 (Value::Vector(left), Value::Vector(right)) if left.len() == right.len() =>
-                    Value::Vector(left.into_iter().zip(right).map(|(a, b)| {
+                    Value::Vector(left.iter().zip(right).map(|(a, b)| {
                         Ok(Value::Number(a.as_number()? - b.as_number()?))
                     }).collect::<Result<Vec<_>, String>>()?),
-                (left, right) => Value::Number(left.as_number()? - right.as_number()?),
+                _ => Value::Number(left_val.as_number()? - right_val.as_number()?),
             },
-            BinaryOp::Multiply => match (left_val, right_val) {
+            BinaryOp::Multiply => match (&left_val, &right_val) {
+                (Value::Undef, _) | (_, Value::Undef) => Value::Undef,
                 (Value::Number(scalar), Value::Vector(vector))
                 | (Value::Vector(vector), Value::Number(scalar)) =>
-                    Value::Vector(vector.into_iter().map(|value| {
+                    Value::Vector(vector.iter().map(|value| {
                         Ok(Value::Number(value.as_number()? * scalar))
                     }).collect::<Result<Vec<_>, String>>()?),
-                (left, right) => Value::Number(left.as_number()? * right.as_number()?),
+                _ => Value::Number(left_val.as_number()? * right_val.as_number()?),
             },
             BinaryOp::Divide => {
-                let r = right_val.as_number()?;
-                if r == 0.0 { return Err("Division by zero".into()); }
-                Value::Number(left_val.as_number()? / r)
+                if left_val.is_undef() || right_val.is_undef() {
+                    Value::Undef
+                } else {
+                    let r = right_val.as_number()?;
+                    if r == 0.0 { return Err("Division by zero".into()); }
+                    Value::Number(left_val.as_number()? / r)
+                }
             }
-            BinaryOp::Modulo => Value::Number(left_val.as_number()? % right_val.as_number()?),
-            BinaryOp::Exponent => Value::Number(left_val.as_number()?.powf(right_val.as_number()?)),
+            BinaryOp::Modulo => {
+                if left_val.is_undef() || right_val.is_undef() {
+                    Value::Undef
+                } else {
+                    Value::Number(left_val.as_number()? % right_val.as_number()?)
+                }
+            }
+            BinaryOp::Exponent => {
+                if left_val.is_undef() || right_val.is_undef() {
+                    Value::Undef
+                } else {
+                    Value::Number(left_val.as_number()?.powf(right_val.as_number()?))
+                }
+            }
             
             BinaryOp::Equal => Value::Bool(values_equal(&left_val, &right_val)),
             BinaryOp::NotEqual => Value::Bool(!values_equal(&left_val, &right_val)),
-            BinaryOp::Less => Value::Bool(left_val.as_number()? < right_val.as_number()?),
-            BinaryOp::Greater => Value::Bool(left_val.as_number()? > right_val.as_number()?),
-            BinaryOp::LessEqual => Value::Bool(left_val.as_number()? <= right_val.as_number()?),
-            BinaryOp::GreaterEqual => Value::Bool(left_val.as_number()? >= right_val.as_number()?),
+            BinaryOp::Less => {
+                if left_val.is_undef() || right_val.is_undef() {
+                    Value::Bool(false)
+                } else {
+                    Value::Bool(left_val.as_number()? < right_val.as_number()?)
+                }
+            }
+            BinaryOp::Greater => {
+                if left_val.is_undef() || right_val.is_undef() {
+                    Value::Bool(false)
+                } else {
+                    Value::Bool(left_val.as_number()? > right_val.as_number()?)
+                }
+            }
+            BinaryOp::LessEqual => {
+                if left_val.is_undef() || right_val.is_undef() {
+                    Value::Bool(false)
+                } else {
+                    Value::Bool(left_val.as_number()? <= right_val.as_number()?)
+                }
+            }
+            BinaryOp::GreaterEqual => {
+                if left_val.is_undef() || right_val.is_undef() {
+                    Value::Bool(false)
+                } else {
+                    Value::Bool(left_val.as_number()? >= right_val.as_number()?)
+                }
+            }
             
             BinaryOp::LogicalAnd => Value::Bool(left_val.as_bool() && right_val.as_bool()),
             BinaryOp::LogicalOr => Value::Bool(left_val.as_bool() || right_val.as_bool()),
             
-            BinaryOp::BinaryAnd => Value::Number((left_val.as_number()? as i64 & right_val.as_number()? as i64) as f64),
-            BinaryOp::BinaryOr => Value::Number((left_val.as_number()? as i64 | right_val.as_number()? as i64) as f64),
-            BinaryOp::ShiftLeft => Value::Number(((left_val.as_number()? as i64) << (right_val.as_number()? as i64)) as f64),
-            BinaryOp::ShiftRight => Value::Number(((left_val.as_number()? as i64) >> (right_val.as_number()? as i64)) as f64),
+            BinaryOp::BinaryAnd => {
+                if left_val.is_undef() || right_val.is_undef() {
+                    Value::Undef
+                } else {
+                    Value::Number((left_val.as_number()? as i64 & right_val.as_number()? as i64) as f64)
+                }
+            }
+            BinaryOp::BinaryOr => {
+                if left_val.is_undef() || right_val.is_undef() {
+                    Value::Undef
+                } else {
+                    Value::Number((left_val.as_number()? as i64 | right_val.as_number()? as i64) as f64)
+                }
+            }
+            BinaryOp::ShiftLeft => {
+                if left_val.is_undef() || right_val.is_undef() {
+                    Value::Undef
+                } else {
+                    Value::Number(((left_val.as_number()? as i64) << (right_val.as_number()? as i64)) as f64)
+                }
+            }
+            BinaryOp::ShiftRight => {
+                if left_val.is_undef() || right_val.is_undef() {
+                    Value::Undef
+                } else {
+                    Value::Number(((left_val.as_number()? as i64) >> (right_val.as_number()? as i64)) as f64)
+                }
+            }
         })
     }
 
@@ -217,6 +286,61 @@ impl Evaluator {
             }
             value => Ok(value),
         }
+    }
+
+    fn eval_for_c(
+        &mut self,
+        init: &[Assignment],
+        condition: Option<&Expression>,
+        _update: &[Assignment],
+        body: &Expression,
+    ) -> Result<Value, String> {
+        if init.is_empty() {
+            return Err("for C expression requires at least one binding".into());
+        }
+
+        let mut values = Vec::new();
+        self.eval_for_c_bindings(init, 0, condition, body, &mut values)?;
+        Ok(Value::Vector(values))
+    }
+
+    fn eval_for_c_bindings(
+        &mut self,
+        bindings: &[Assignment],
+        index: usize,
+        condition: Option<&Expression>,
+        body: &Expression,
+        values: &mut Vec<Value>,
+    ) -> Result<(), String> {
+        let binding = &bindings[index];
+        if binding.name.is_empty() {
+            return Err("for C binding requires a variable name".into());
+        }
+        let iterable = binding.value.as_ref()
+            .ok_or_else(|| format!("for C binding '{}' requires an expression", binding.name))?;
+        let iterable = self.eval(iterable)?;
+        let items = match iterable {
+            Value::Vector(items) => items,
+            _ => return Err(format!("for C binding '{}' must evaluate to a vector", binding.name)),
+        };
+
+        for item in items {
+            let child = Environment::with_parent(self.env.clone());
+            child.define(binding.name.clone(), item);
+            let mut evaluator = Evaluator::new(Rc::new(child));
+            if index + 1 == bindings.len() {
+                let include = match condition {
+                    Some(condition) => evaluator.eval(condition)?.as_bool(),
+                    None => true,
+                };
+                if include {
+                    values.push(evaluator.eval(body)?);
+                }
+            } else {
+                evaluator.eval_for_c_bindings(bindings, index + 1, condition, body, values)?;
+            }
+        }
+        Ok(())
     }
 
     fn eval_range(&mut self, start: &Expression, step: Option<&Expression>, end: &Expression) -> Result<Value, String> {

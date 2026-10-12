@@ -40,10 +40,24 @@ pub struct Environment {
 
 impl Environment {
     pub fn new() -> Self {
-        Self {
+        let env = Self {
             vars: RefCell::new(HashMap::new()),
             parent: None,
-        }
+        };
+        env.init_defaults();
+        env
+    }
+
+    fn init_defaults(&self) {
+        let mut vars = self.vars.borrow_mut();
+        vars.insert("$preview".to_string(), Value::Bool(false));
+        vars.insert("$t".to_string(), Value::Number(0.0));
+        vars.insert("$layer_height".to_string(), Value::Number(0.2));
+        vars.insert("$vpr".to_string(), Value::Vector(vec![Value::Number(0.0), Value::Number(0.0), Value::Number(0.0)]));
+        vars.insert("$vpt".to_string(), Value::Vector(vec![Value::Number(0.0), Value::Number(0.0), Value::Number(0.0)]));
+        vars.insert("$vpd".to_string(), Value::Number(500.0));
+        vars.insert("$vpf".to_string(), Value::Number(22.5));
+        vars.insert("$children".to_string(), Value::Number(0.0));
     }
 
     pub fn with_parent(parent: Rc<Environment>) -> Self {
@@ -105,6 +119,7 @@ impl Value {
             Value::Number(n) => Ok(n.to_string()),
             Value::Bool(b) => Ok(b.to_string()),
             Value::Undef => Ok("undef".to_string()),
+            Value::Vector(_) => Ok(format!("{}", self)),
             _ => Err(format!("Cannot convert {:?} to string", self)),
         }
     }

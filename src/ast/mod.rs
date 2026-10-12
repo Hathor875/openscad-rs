@@ -47,6 +47,7 @@ pub enum UnaryOp {
     Not,
     BinaryNot,
     Negate,
+    Positive,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -112,6 +113,13 @@ pub enum Expression {
         body: Box<Expression>,
         span: Span,
     },
+    ForC {
+        init: Vec<Assignment>,
+        condition: Option<Box<Expression>>,
+        update: Vec<Assignment>,
+        body: Box<Expression>,
+        span: Span,
+    },
     Each {
         args: Vec<Assignment>,
         body: Box<Expression>,
@@ -143,6 +151,7 @@ impl Expression {
             Expression::Echo { span, .. } => *span,
             Expression::Range { span, .. } => *span,
             Expression::For { span, .. } => *span,
+            Expression::ForC { span, .. } => *span,
             Expression::Each { span, .. } => *span,
             Expression::Vector(_, s) => *s,
         }
