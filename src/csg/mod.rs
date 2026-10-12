@@ -2,6 +2,7 @@
 // Uses nalgebra for math, outputs to OBJ/STL
 
 use nalgebra::Matrix4;
+use manifold3d::Manifold;
 // use crate::interpreter::value::Value;
 // use crate::ast::Span;
 // use anyhow::Result;
@@ -188,25 +189,57 @@ impl Mesh {
     }
     
     pub fn union(&self, other: &Mesh) -> Mesh {
-        // Simple concatenation (no actual boolean union)
-        let mut result = self.clone();
-        let offset = result.vertices.len();
-        result.vertices.extend(other.vertices.iter().cloned());
-        for f in &other.faces {
-            result.faces.push([f[0] + offset, f[1] + offset, f[2] + offset]);
+        // Use manifold for proper boolean operations
+        let m1 = Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
+        let m2 = Self::mesh_to_manifold(other).unwrap_or_else(|_| Self::mesh_to_manifold_simple(other));
+        let result = m1.union(&m2);
+        Self::manifold_to_mesh(&result)
+    }
+    
+    pub fn difference(&self, other: &Mesh) -> Mesh {
+        let m1 = Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
+        let m2 = Self::mesh_to_manifold(other).unwrap_or_else(|_| Self::mesh_to_manifold_simple(other));
+        let result = m1.difference(&m2);
+        Self::manifold_to_mesh(&result)
+    }
+    
+    pub fn manifold_to_mesh(m: &Manifold) -> Mesh {
+        let (verts, n_props, tri_indices) = m.to_mesh_f64();
+        let mut vertices = Vec::new();
+        for i in 0..(verts.len() / n_props) {
+            let base = i * n_props;
+            if n_props >= 3 {
+                vertices.push([verts[base], verts[base + 1], verts[base + 2]]);
+            } else {
+                vertices.push([verts[base], 0.0, 0.0]);
+            }
         }
-        result.normals.extend(other.normals.iter().cloned());
-        result
+        let mut faces = Vec::new();
+        for i in 0..(tri_indices.len() / 3) {
+            let base = i * 3;
+            faces.push([tri_indices[base] as usize, tri_indices[base + 1] as usize, tri_indices[base + 2] as usize]);
+        }
+        let normals = vec![[0.0, 0.0, 1.0]; vertices.len()];
+        Mesh { vertices, faces, normals }
     }
     
-    pub fn difference(&self, _other: &Mesh) -> Mesh {
-        // Placeholder - just return self
-        self.clone()
+    fn mesh_to_manifold(m: &Mesh) -> Result<Manifold, manifold3d::CsgError> {
+        if m.faces.is_empty() || m.vertices.is_empty() {
+            return Manifold::from_mesh_f64(&[], 3, &[]);
+        }
+        let mut vert_props = Vec::with_capacity(m.vertices.len() * 3);
+        for v in &m.vertices {
+            vert_props.extend_from_slice(&[v[0], v[1], v[2]]);
+        }
+        let mut tri_indices: Vec<u64> = Vec::with_capacity(m.faces.len() * 3);
+        for f in &m.faces {
+            tri_indices.extend_from_slice(&[f[0] as u64, f[1] as u64, f[2] as u64]);
+        }
+        Manifold::from_mesh_f64(&vert_props, 3, &tri_indices)
     }
     
-    pub fn intersection(&self, _other: &Mesh) -> Mesh {
-        // Placeholder
-        self.clone()
+    fn mesh_to_manifold_simple(m: &Mesh) -> Manifold {
+        Self::mesh_to_manifold(m).unwrap_or_else(|_| Manifold::empty())
     }
     
     pub fn to_obj(&self) -> String {

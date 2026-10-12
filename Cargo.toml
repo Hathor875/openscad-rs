@@ -21,6 +21,8 @@ serde_json = "1.0"
 # Math
 num-traits = "0.2"
 nalgebra = "0.35.0"
+# CSG with exact boolean operations
+manifold3d = "0.4.1"
 
 [dev-dependencies]
 pretty_assertions = "1.4"

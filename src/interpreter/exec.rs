@@ -198,27 +198,34 @@ impl Executor {
                 self.current_builder().add_primitive(Primitive::Sphere { r, d: None, fn_, fa, fs });
                 Ok(Some(()))
             }
-            "cylinder" => {
-                let h = self.get_arg(arguments, "h")?.unwrap_or(1.0);
-                let r1 = {
-                    let r1_val = self.get_arg(arguments, "r1")?;
-                    let r_val = self.get_arg(arguments, "r")?;
-                    r1_val.or(r_val).unwrap_or(1.0)
+            "square" => {
+                let size = if let Some(s) = self.get_arg(arguments, "size")? {
+                    [s, s]
+                } else {
+                    [
+                        self.get_arg(arguments, "x")?.unwrap_or(1.0),
+                        self.get_arg(arguments, "y")?.unwrap_or(1.0),
+                    ]
                 };
-                let r2 = {
-                    let r2_val = self.get_arg(arguments, "r2")?;
-                    let r_val = self.get_arg(arguments, "r")?;
-                    r2_val.or(r_val).unwrap_or(1.0)
-                };
-                let d1 = self.get_arg(arguments, "d1")?.map(|d| d/2.0);
-                let d2 = self.get_arg(arguments, "d2")?.map(|d| d/2.0);
                 let center = self.get_bool(arguments, "center", false)?;
+                self.current_builder().add_primitive(Primitive::Square { size, center });
+                Ok(Some(()))
+            }
+            "circle" => {
+                let r = {
+                    let r_val = self.get_arg(arguments, "r")?;
+                    let d_val = self.get_arg(arguments, "d")?;
+                    r_val.or_else(|| d_val.map(|d| d / 2.0)).unwrap_or(1.0)
+                };
                 let fn_ = self.get_arg(arguments, "fn")?.map(|f| f as usize);
                 let fa = self.get_arg(arguments, "fa")?;
                 let fs = self.get_arg(arguments, "fs")?;
-                self.current_builder().add_primitive(Primitive::Cylinder {
-                    h, r1, r2, d1, d2, center, fn_, fa, fs,
-                });
+                self.current_builder().add_primitive(Primitive::Circle { r, d: None, fn_, fa, fs });
+                Ok(Some(()))
+            }
+            "polyhedron" => {
+                // For now, just add a placeholder mesh
+                self.current_builder().add_primitive(Primitive::Polyhedron { points: vec![], faces: vec![] });
                 Ok(Some(()))
             }
             // Transformations - wrap children in new CSG context

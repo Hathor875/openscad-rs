@@ -15,13 +15,13 @@ pub struct Parser;
 impl Parser {
     pub fn parse(input: &str) -> Result<SourceFile> {
         let pairs = OpenSCADParser::parse(Rule::module, input)?;
-        eprintln!("DEBUG parse: pairs count = {}", pairs.len());
+        // eprintln!("DEBUG parse: pairs count = {}", pairs.len());
         let mut file = SourceFile::new(String::new());
         
         for pair in pairs {
-            eprintln!("DEBUG parse: pair rule = {:?}", pair.as_rule());
+            // eprintln!("DEBUG parse: pair rule = {:?}", pair.as_rule());
             for inner in pair.into_inner() {
-                eprintln!("DEBUG parse: inner rule = {:?}", inner.as_rule());
+                // eprintln!("DEBUG parse: inner rule = {:?}", inner.as_rule());
                 Self::parse_top_level(inner, &mut file)?;
             }
         }
@@ -40,7 +40,7 @@ impl Parser {
         match pair.as_rule() {
             Rule::top_level => {
                 for inner in pair.into_inner() {
-                    eprintln!("DEBUG parse_top_level: inner rule = {:?}", inner.as_rule());
+                    // eprintln!("DEBUG parse_top_level: inner rule = {:?}", inner.as_rule());
                     match inner.as_rule() {
                         Rule::statement => {
                             if let Some(stmt) = Self::parse_statement(inner)? {
@@ -74,7 +74,7 @@ impl Parser {
             Rule::statement => {
                 let mut inner = pair.clone().into_inner();
                 if let Some(first) = inner.next() {
-                    eprintln!("DEBUG parse_statement: first rule = {:?}", first.as_rule());
+                    // eprintln!("DEBUG parse_statement: first rule = {:?}", first.as_rule());
                     match first.as_rule() {
                         Rule::module_instantiation => Ok(Some(Self::parse_module_instantiation(first)?)),
                         Rule::assignment => Ok(Some(Self::parse_assignment(first)?)),
@@ -158,21 +158,29 @@ impl Parser {
     
     fn parse_argument(pair: Pair<Rule>) -> Result<Assignment> {
         let span = Self::pest_span_to_span(pair.as_span());
+        let mut name = String::new();
+        let mut value = None;
         
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::expression => {
-                    let expr = Self::parse_expression(inner)?;
-                    return Ok(Assignment::new(String::new(), Some(expr), span));
+                    value = Some(Self::parse_expression(inner)?);
                 }
                 Rule::identifier => {
-                    let name = inner.as_str().to_string();
-                    return Ok(Assignment::new(name, None, span));
+                    name = inner.as_str().to_string();
+                }
+                Rule::EqSign => {
+                    // Skip the equals sign
                 }
                 _ => {}
             }
         }
-        Ok(Assignment::new(String::new(), None, span))
+        
+        if !name.is_empty() {
+            Ok(Assignment::new(name, value, span))
+        } else {
+            Ok(Assignment::new(String::new(), value, span))
+        }
     }
     
     fn parse_assignment(pair: Pair<Rule>) -> Result<Statement> {
@@ -239,10 +247,10 @@ impl Parser {
         let mut then_branch = None;
         let mut else_branch = None;
         let span = Self::pest_span_to_span(pair.as_span());
-        eprintln!("DEBUG parse_if_stmt: pair rule = {:?}", pair.as_rule());
+        // eprintln!("DEBUG parse_if_stmt: pair rule = {:?}", pair.as_rule());
         
         for inner in pair.into_inner() {
-            eprintln!("DEBUG parse_if_stmt: inner rule = {:?}, text = {:?}", inner.as_rule(), inner.as_str());
+            // eprintln!("DEBUG parse_if_stmt: inner rule = {:?}, text = {:?}", inner.as_rule(), inner.as_str());
             match inner.as_rule() {
                 Rule::expression => {
                     if condition.is_none() {
@@ -532,9 +540,13 @@ impl Parser {
     
     fn parse_atom(pair: Pair<Rule>) -> Result<Expression> {
         for inner in pair.into_inner() {
-            eprintln!("DEBUG parse_atom: inner rule = {:?}, text = {:?}", inner.as_rule(), inner.as_str());
+            // eprintln!("DEBUG parse_atom: inner rule = {:?}, text = {:?}", inner.as_rule(), inner.as_str());
             match inner.as_rule() {
                 Rule::let_expr => return Self::parse_let_expr(inner),
+                Rule::assert_expr => return Self::parse_assert_expr(inner),
+                Rule::for_expr => return Self::parse_for_expr(inner),
+                Rule::each_expr => return Self::parse_each_expr(inner),
+                Rule::echo_expr => return Self::parse_echo_expr(inner),
                 _ => return Self::parse_expression(inner),
             }
         }
@@ -608,7 +620,7 @@ impl Parser {
     fn parse_number(pair: Pair<Rule>) -> Result<Expression> {
         let span = Self::pest_span_to_span(pair.as_span());
         let text = pair.as_str().trim();
-        eprintln!("DEBUG parse_number: text = {:?}", text);
+        // eprintln!("DEBUG parse_number: text = {:?}", text);
         
         for inner in pair.into_inner() {
             match inner.as_rule() {
@@ -665,7 +677,103 @@ impl Parser {
         
         Ok(Expression::Vector(elements, span))
     }
+
+    fn parse_for_expr(pair: Pair<Rule>) -> Result<Expression> {
+        let mut args = Vec::new();
+        let mut body = None;
+        let span = Self::pest_span_to_span(pair.as_span());
+        for inner in pair.into_inner() {
+            match inner.as_rule() {
+                Rule::argument => {
+                    args.push(Self::parse_argument(inner)?);
+                }
+                Rule::expression => {
+                    body = Some(Self::parse_expression(inner)?);
+                }
+                _ => {}
+            }
+        }
+        Ok(Expression::For {
+            args,
+            body: Box::new(body.ok_or_else(|| anyhow::anyhow!("Missing for body"))?),
+            span,
+        })
+    }
+    fn parse_each_expr(pair: Pair<Rule>) -> Result<Expression> {
+        let span = Self::pest_span_to_span(pair.as_span());
+        let mut body = None;
+        for inner in pair.into_inner() {
+            if let Rule::expression = inner.as_rule() {
+                body = Some(Self::parse_expression(inner)?);
+            }
+        }
+        Ok(Expression::Each {
+            args: vec![],
+            body: Box::new(body.ok_or_else(|| anyhow::anyhow!("Missing each body"))?),
+            span,
+        })
+    }
+
+
+    fn parse_assert_expr(pair: Pair<Rule>) -> Result<Expression> {
+        let mut args = Vec::new();
+        let mut body = None;
+        let span = Self::pest_span_to_span(pair.as_span());
+        
+        for inner in pair.into_inner() {
+            match inner.as_rule() {
+                Rule::arguments => {
+                    for arg in inner.into_inner() {
+                        if let Rule::argument = arg.as_rule() {
+                            args.push(Self::parse_argument(arg)?);
+                        }
+                    }
+                }
+                Rule::expression => {
+                    body = Some(Self::parse_expression(inner)?);
+                }
+                _ => {}
+            }
+        }
+        
+        Ok(Expression::Assert {
+            args,
+            body: body.map(Box::new),
+            span,
+        })
+    }
+    
+    fn parse_echo_expr(pair: Pair<Rule>) -> Result<Expression> {
+        let mut args = Vec::new();
+        let mut body = None;
+        let span = Self::pest_span_to_span(pair.as_span());
+        
+        for inner in pair.into_inner() {
+            match inner.as_rule() {
+                Rule::arguments => {
+                    for arg in inner.into_inner() {
+                        if let Rule::argument = arg.as_rule() {
+                            args.push(Self::parse_argument(arg)?);
+                        }
+                    }
+                }
+                Rule::expression => {
+                    body = Some(Self::parse_expression(inner)?);
+                }
+                _ => {}
+            }
+        }
+        
+        Ok(Expression::Echo {
+            args,
+            body: body.map(Box::new),
+            span,
+        })
+    }
 }
+
+
+
 
 #[cfg(test)]
 mod tests {

@@ -17,7 +17,7 @@ impl Evaluator {
     }
 
     pub fn eval(&mut self, expr: &Expression) -> Result<Value, String> {
-        eprintln!("DEBUG eval: expr = {:?}", expr);
+        // eprintln!("DEBUG eval: expr = {:?}", expr);
         match expr {
             Expression::Literal(lit, _span) => self.eval_literal(lit),
             Expression::Lookup(name, _span) => self.eval_identifier(name),
@@ -33,6 +33,7 @@ impl Evaluator {
             Expression::FunctionDef { params, body, .. } => self.eval_function_def(params, body),
             Expression::Assert { args, body, .. } => self.eval_assert(args, body.as_deref()),
             Expression::Echo { args, .. } => self.eval_echo(args),
+            Expression::For { .. } | Expression::Each { .. } => Ok(Value::Undef),
         }
     }
 
@@ -63,7 +64,7 @@ impl Evaluator {
         let short_circuit = matches!(op, BinaryOp::LogicalAnd | BinaryOp::LogicalOr);
         
         let left_val = self.eval(left)?;
-        eprintln!("DEBUG eval_binary: op={:?}, left_val={:?}", op, left_val);
+        // eprintln!("DEBUG eval_binary: op={:?}, left_val={:?}", op, left_val);
         
         if short_circuit {
             let left_bool = left_val.as_bool();
@@ -76,7 +77,7 @@ impl Evaluator {
         }
         
         let right_val = self.eval(right)?;
-        eprintln!("DEBUG eval_binary: op={:?}, right_val={:?}", op, right_val);
+        // eprintln!("DEBUG eval_binary: op={:?}, right_val={:?}", op, right_val);
 
         Ok(match op {
             BinaryOp::Plus => Value::Number(left_val.as_number()? + right_val.as_number()?),

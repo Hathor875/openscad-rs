@@ -106,6 +106,16 @@ pub enum Expression {
         body: Option<Box<Expression>>,
         span: Span,
     },
+    For {
+        args: Vec<Assignment>,
+        body: Box<Expression>,
+        span: Span,
+    },
+    Each {
+        args: Vec<Assignment>,
+        body: Box<Expression>,
+        span: Span,
+    },
     Range {
         start: Box<Expression>,
         step: Option<Box<Expression>>,
@@ -131,6 +141,8 @@ impl Expression {
             Expression::Assert { span, .. } => *span,
             Expression::Echo { span, .. } => *span,
             Expression::Range { span, .. } => *span,
+            Expression::For { span, .. } => *span,
+            Expression::Each { span, .. } => *span,
             Expression::Vector(_, s) => *s,
         }
     }
