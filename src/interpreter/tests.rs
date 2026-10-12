@@ -474,6 +474,14 @@ mod tests {
     }
 
     #[test]
+    fn test_named_color_preserves_child_geometry() {
+        let parsed = Parser::parse("color(\"red\") cube(2);").unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        assert!(!exec.build_mesh().unwrap().is_empty());
+    }
+
+    #[test]
     fn test_multmatrix_transforms_child_geometry() {
         let parsed = Parser::parse(
             "multmatrix([[1,0,0,2],[0,1,0,3],[0,0,1,4],[0,0,0,1]]) cube();",

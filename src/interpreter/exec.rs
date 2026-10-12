@@ -348,6 +348,24 @@ impl Executor {
 
     fn get_color(&mut self, arguments: &[Assignment]) -> Result<[f64; 4], String> {
         if let Some(value) = self.get_vector(arguments, "color")? {
+            if let Value::String(name) = value {
+                let color = match name.to_ascii_lowercase().as_str() {
+                    "black" => [0.0, 0.0, 0.0, 1.0],
+                    "blue" => [0.0, 0.0, 1.0, 1.0],
+                    "cyan" => [0.0, 1.0, 1.0, 1.0],
+                    "gray" | "grey" => [0.5, 0.5, 0.5, 1.0],
+                    "green" => [0.0, 1.0, 0.0, 1.0],
+                    "magenta" => [1.0, 0.0, 1.0, 1.0],
+                    "orange" => [1.0, 0.5, 0.0, 1.0],
+                    "pink" => [1.0, 0.75, 0.8, 1.0],
+                    "purple" => [0.5, 0.0, 0.5, 1.0],
+                    "red" => [1.0, 0.0, 0.0, 1.0],
+                    "white" => [1.0, 1.0, 1.0, 1.0],
+                    "yellow" => [1.0, 1.0, 0.0, 1.0],
+                    _ => return Err(format!("unknown color name '{name}'")),
+                };
+                return Ok(color);
+            }
             let Value::Vector(values) = value else {
                 return Err("color must be a three- or four-element vector".into());
             };
