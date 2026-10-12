@@ -184,6 +184,33 @@ mod tests {
     }
 
     #[test]
+    fn test_polygon_builds_triangulated_mesh() {
+        let input = "polygon(points = [[0,0], [2,0], [2,1], [0,1]]);";
+        let parsed = Parser::parse(input).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.vertices.len(), 4);
+        assert_eq!(mesh.faces.len(), 2);
+        assert!(mesh.vertices.iter().all(|vertex| vertex[2] == 0.0));
+    }
+
+    #[test]
+    fn test_linear_extrude_builds_solid_mesh() {
+        let input = "linear_extrude(height = 3) polygon(points = [[0,0], [2,0], [2,1], [0,1]]);";
+        let parsed = Parser::parse(input).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.vertices.len(), 8);
+        assert_eq!(mesh.faces.len(), 12);
+        let min_z = mesh.vertices.iter().map(|vertex| vertex[2]).fold(f64::INFINITY, f64::min);
+        let max_z = mesh.vertices.iter().map(|vertex| vertex[2]).fold(f64::NEG_INFINITY, f64::max);
+        assert_eq!(min_z, 0.0);
+        assert_eq!(max_z, 3.0);
+    }
+
+    #[test]
     fn test_include_loads_relative_assignments() {
         let dir = unique_fixture_dir("include");
         fs::create_dir_all(&dir).unwrap();

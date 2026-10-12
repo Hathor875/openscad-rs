@@ -239,6 +239,43 @@ impl Executor {
             Ok(indices)
         }).collect()
     }
+
+    fn value_points2(value: Value) -> Result<Vec<[f64; 2]>, String> {
+        let Value::Vector(points) = value else {
+            return Err("polygon points must be a vector".into());
+        };
+        points.into_iter().map(|point| {
+            let Value::Vector(values) = point else {
+                return Err("each polygon point must be a vector".into());
+            };
+            if values.len() != 2 {
+                return Err("each polygon point must contain two values".into());
+            }
+            Ok([values[0].as_number()?, values[1].as_number()?])
+        }).collect()
+    }
+
+    fn value_paths(value: Value, point_count: usize) -> Result<Vec<Vec<usize>>, String> {
+        let Value::Vector(paths) = value else {
+            return Err("polygon paths must be a vector".into());
+        };
+        paths.into_iter().map(|path| {
+            let Value::Vector(indices) = path else {
+                return Err("each polygon path must be a vector".into());
+            };
+            let indices = indices.into_iter().map(|index| {
+                let index = index.as_number()?;
+                if index < 0.0 || index.fract() != 0.0 || index as usize >= point_count {
+                    return Err("polygon path index is out of bounds".into());
+                }
+                Ok(index as usize)
+            }).collect::<Result<Vec<_>, String>>()?;
+            if indices.len() < 3 {
+                return Err("polygon paths need at least three points".into());
+            }
+            Ok(indices)
+        }).collect()
+    }
     
     fn exec_module_inst(
         &mut self,
@@ -400,6 +437,37 @@ impl Executor {
                 let fa = self.get_arg(arguments, "fa")?;
                 let fs = self.get_arg(arguments, "fs")?;
                 self.current_builder().add_primitive(Primitive::Circle { r, d: None, fn_, fa, fs });
+                Ok(Some(()))
+            }
+            "polygon" => {
+                let points = self.get_vector(arguments, "points")?
+                    .ok_or_else(|| "polygon requires points".to_string())
+                    .and_then(Self::value_points2)?;
+                let paths = if let Some(value) = self.get_vector(arguments, "paths")? {
+                    Self::value_paths(value, points.len())?
+                } else {
+                    vec![(0..points.len()).collect()]
+                };
+                self.current_builder().add_primitive(Primitive::Polygon { points, paths });
+                Ok(Some(()))
+            }
+            "linear_extrude" => {
+                let height = self.get_arg(arguments, "height")?.unwrap_or(1.0);
+                if height <= 0.0 {
+                    return Err("linear_extrude height must be positive".into());
+                }
+                let center = self.get_bool(arguments, "center", false)?;
+                self.csg_stack.push(CsgBuilder::new());
+                for child in children {
+                    self.execute(child)?;
+                }
+                if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
+                    self.current_builder().union(crate::csg::CsgNode::LinearExtrude {
+                        child: Box::new(child_csg),
+                        height,
+                        center,
+                    });
+                }
                 Ok(Some(()))
             }
             "polyhedron" => {

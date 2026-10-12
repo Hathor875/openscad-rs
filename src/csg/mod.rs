@@ -40,6 +40,11 @@ pub enum CsgNode {
         child: Box<CsgNode>,
         color: [f64; 4],
     },
+    LinearExtrude {
+        child: Box<CsgNode>,
+        height: f64,
+        center: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -194,6 +199,35 @@ impl Mesh {
             v[1] = tp.y;
             v[2] = tp.z;
         }
+
+    }
+
+    pub fn linear_extrude(&self, height: f64, center: bool) -> Mesh {
+        let offset_z = if center { -height / 2.0 } else { 0.0 };
+        let mut mesh = Mesh::new();
+        mesh.vertices.extend(self.vertices.iter().map(|v| [v[0], v[1], offset_z]));
+        mesh.vertices.extend(self.vertices.iter().map(|v| [v[0], v[1], offset_z + height]));
+        let count = self.vertices.len();
+        for face in &self.faces {
+            mesh.faces.push([face[2], face[1], face[0]]);
+            mesh.faces.push([face[0] + count, face[1] + count, face[2] + count]);
+        }
+
+        let mut edges = std::collections::HashMap::<(usize, usize), usize>::new();
+        for face in &self.faces {
+            for &(a, b) in &[(face[0], face[1]), (face[1], face[2]), (face[2], face[0])] {
+                let edge = if a < b { (a, b) } else { (b, a) };
+                *edges.entry(edge).or_default() += 1;
+            }
+        }
+        for ((a, b), count_edges) in edges {
+            if count_edges == 1 {
+                mesh.faces.push([a, b, b + count]);
+                mesh.faces.push([a, b + count, a + count]);
+            }
+        }
+        mesh.normals = vec![[0.0, 0.0, 1.0]; mesh.vertices.len()];
+        mesh
     }
     
     pub fn union(&self, other: &Mesh) -> Mesh {
@@ -341,6 +375,22 @@ impl Primitive {
                     }
                     for index in 1..face.len() - 1 {
                         mesh.faces.push([face[0], face[index], face[index + 1]]);
+                    }
+                }
+                mesh
+            }
+            Primitive::Polygon { points, paths } => {
+                let mut mesh = Mesh {
+                    vertices: points.iter().map(|point| [point[0], point[1], 0.0]).collect(),
+                    faces: Vec::new(),
+                    normals: vec![[0.0, 0.0, 1.0]; points.len()],
+                };
+                for path in paths {
+                    if path.len() < 3 {
+                        continue;
+                    }
+                    for index in 1..path.len() - 1 {
+                        mesh.faces.push([path[0], path[index], path[index + 1]]);
                     }
                 }
                 mesh
@@ -555,6 +605,9 @@ impl CsgNode {
                 children.first().map(CsgNode::to_mesh).unwrap_or_else(Mesh::new)
             }
             CsgNode::Color { child, .. } => child.to_mesh(),
+            CsgNode::LinearExtrude { child, height, center } => {
+                child.to_mesh().linear_extrude(*height, *center)
+            }
         }
     }
 }
