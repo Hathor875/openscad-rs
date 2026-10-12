@@ -544,13 +544,14 @@ impl Parser {
                     let suffixes: Vec<_> = inner.into_inner().collect();
                     if suffixes.is_empty() {
                         if let Some(e) = base_expr.take() {
+                            let name = match &e {
+                                Expression::Lookup(n, _) => n.clone(),
+                                _ => String::new(),
+                            };
                             base_expr = Some(Expression::FunctionCall {
-                                name: match &e {
-                                    Expression::Lookup(n, _) => n.clone(),
-                                    _ => String::new(),
-                                },
+                                name,
                                 args: Vec::new(),
-                                expr: None,
+                                expr: Some(Box::new(e)),
                                 span,
                             });
                         }
@@ -565,13 +566,14 @@ impl Parser {
                                     }
                                 }
                                 if let Some(e) = base_expr.take() {
+                                    let name = match &e {
+                                        Expression::Lookup(n, _) => n.clone(),
+                                        _ => "".to_string(),
+                                    };
                                     base_expr = Some(Expression::FunctionCall {
-                                        name: match &e {
-                                            Expression::Lookup(n, _) => n.clone(),
-                                            _ => "".to_string(),
-                                        },
+                                        name,
                                         args,
-                                        expr: None,
+                                        expr: Some(Box::new(e)),
                                         span,
                                     });
                                 }

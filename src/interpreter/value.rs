@@ -15,7 +15,7 @@ pub enum Value {
     Module(ModuleValue),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct FunctionValue {
     pub name: String,
     pub params: Vec<(String, Option<Expression>)>,
@@ -23,7 +23,17 @@ pub struct FunctionValue {
     pub captures: Rc<Environment>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+impl fmt::Debug for FunctionValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FunctionValue")
+            .field("name", &self.name)
+            .field("params", &self.params)
+            .field("body", &self.body)
+            .finish()
+    }
+}
+
+#[derive(Clone, PartialEq)]
 pub struct ModuleValue {
     pub name: String,
     pub params: Vec<(String, Option<Expression>)>,
@@ -32,12 +42,32 @@ pub struct ModuleValue {
     pub modifiers: ModuleModifiers,
 }
 
-#[derive(Debug, Clone, Default, PartialEq)]
+impl fmt::Debug for ModuleValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ModuleValue")
+            .field("name", &self.name)
+            .field("params", &self.params)
+            .field("modifiers", &self.modifiers)
+            .finish()
+    }
+}
+
+#[derive(Clone, Default, PartialEq)]
 pub struct Environment {
     pub vars: RefCell<HashMap<String, Value>>,
     pub functions: RefCell<HashMap<String, FunctionValue>>,
     pub modules: RefCell<HashMap<String, ModuleValue>>,
     pub parent: Option<Rc<Environment>>,
+}
+
+impl fmt::Debug for Environment {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let var_keys: Vec<_> = self.vars.borrow().keys().cloned().collect();
+        f.debug_struct("Environment")
+            .field("var_keys", &var_keys)
+            .field("has_parent", &self.parent.is_some())
+            .finish()
+    }
 }
 
 impl Environment {

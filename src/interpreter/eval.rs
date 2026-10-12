@@ -36,7 +36,7 @@ impl Evaluator {
             }
             Expression::Vector(exprs, _span) => self.eval_vector(exprs),
             Expression::Range { start, step, end, .. } => self.eval_range(start, step.as_deref(), end),
-            Expression::FunctionCall { name, args, .. } => self.eval_function_call(name, args),
+            Expression::FunctionCall { name, args, expr, .. } => self.eval_function_call(name, args, expr.as_deref()),
             Expression::ArrayLookup(expr, index, _span) => self.eval_index(expr, index),
             Expression::MemberLookup(expr, field, _span) => self.eval_dot(expr, field),
             Expression::Let { args, body, .. } => self.eval_let(args, body),
@@ -197,34 +197,22 @@ impl Evaluator {
             
             BinaryOp::Equal => Value::Bool(values_equal(&left_val, &right_val)),
             BinaryOp::NotEqual => Value::Bool(!values_equal(&left_val, &right_val)),
-            BinaryOp::Less => {
-                if left_val.is_undef() || right_val.is_undef() {
-                    Value::Bool(false)
-                } else {
-                    Value::Bool(left_val.as_number()? < right_val.as_number()?)
-                }
-            }
-            BinaryOp::Greater => {
-                if left_val.is_undef() || right_val.is_undef() {
-                    Value::Bool(false)
-                } else {
-                    Value::Bool(left_val.as_number()? > right_val.as_number()?)
-                }
-            }
-            BinaryOp::LessEqual => {
-                if left_val.is_undef() || right_val.is_undef() {
-                    Value::Bool(false)
-                } else {
-                    Value::Bool(left_val.as_number()? <= right_val.as_number()?)
-                }
-            }
-            BinaryOp::GreaterEqual => {
-                if left_val.is_undef() || right_val.is_undef() {
-                    Value::Bool(false)
-                } else {
-                    Value::Bool(left_val.as_number()? >= right_val.as_number()?)
-                }
-            }
+            BinaryOp::Less => match values_cmp(&left_val, &right_val) {
+                Some(ord) => Value::Bool(ord.is_lt()),
+                None => Value::Undef,
+            },
+            BinaryOp::Greater => match values_cmp(&left_val, &right_val) {
+                Some(ord) => Value::Bool(ord.is_gt()),
+                None => Value::Undef,
+            },
+            BinaryOp::LessEqual => match values_cmp(&left_val, &right_val) {
+                Some(ord) => Value::Bool(ord.is_le()),
+                None => Value::Undef,
+            },
+            BinaryOp::GreaterEqual => match values_cmp(&left_val, &right_val) {
+                Some(ord) => Value::Bool(ord.is_ge()),
+                None => Value::Undef,
+            },
             
             BinaryOp::LogicalAnd => Value::Bool(left_val.as_bool() && right_val.as_bool()),
             BinaryOp::LogicalOr => Value::Bool(left_val.as_bool() || right_val.as_bool()),
@@ -434,27 +422,40 @@ impl Evaluator {
         Ok(Value::Vector(values))
     }
 
-    fn eval_function_call(&mut self, name: &str, args: &[Assignment]) -> Result<Value, String> {
-        if let Some(builtin) = self.builtins.get_function(name) {
-            let mut evaluated_args = Vec::new();
-            for arg in args {
-                if let Some(expr) = &arg.value {
-                    evaluated_args.push(self.eval(expr)?);
-                } else {
-                    evaluated_args.push(Value::Undef);
+    fn eval_function_call(&mut self, name: &str, args: &[Assignment], callee_expr: Option<&Expression>) -> Result<Value, String> {
+        if !name.is_empty() {
+            if let Some(builtin) = self.builtins.get_function(name) {
+                let mut evaluated_args = Vec::new();
+                for arg in args {
+                    if let Some(expr) = &arg.value {
+                        evaluated_args.push(self.eval(expr)?);
+                    } else {
+                        evaluated_args.push(Value::Undef);
+                    }
                 }
+                return builtin(evaluated_args);
             }
-            return builtin(evaluated_args);
         }
 
-        let func_val = self.env.get_function(name)
-            .map(Value::Function)
-            .or_else(|| self.env.get(name))
-            .ok_or_else(|| format!("Undefined function '{}'", name))?;
+        let func_val = if !name.is_empty() {
+            self.env.get_function(name)
+                .map(Value::Function)
+                .or_else(|| self.env.get(name))
+        } else if let Some(callee) = callee_expr {
+            Some(self.eval(callee)?)
+        } else {
+            None
+        }.ok_or_else(|| format!("Undefined function '{}'", name))?;
 
         match func_val {
             Value::Function(func) => {
-                let new_env = Environment::with_parent(self.env.clone());
+                let parent_env = if func.name == "anonymous" {
+                    func.captures.clone()
+                } else {
+                    self.env.clone()
+                };
+                let new_env = Environment::with_parent(parent_env);
+                let new_env_rc = Rc::new(new_env);
                 let mut positional = args.iter().filter(|arg| arg.name.is_empty());
                 
                 for (param_name, default) in &func.params {
@@ -468,15 +469,15 @@ impl Evaluator {
                             Value::Undef
                         }
                     } else if let Some(default_expr) = default {
-                        let mut eval = Evaluator::new(Rc::new(new_env.clone()));
+                        let mut eval = Evaluator::new(new_env_rc.clone());
                         eval.eval(default_expr)?
                     } else {
                         return Err(format!("Missing argument for parameter '{}'", param_name));
                     };
-                    new_env.define(param_name.clone(), value);
+                    new_env_rc.define(param_name.clone(), value);
                 }
                 
-                let mut eval = Evaluator::new(Rc::new(new_env));
+                let mut eval = Evaluator::new(new_env_rc);
                 eval.eval(&func.body)
             }
             _ => Err(format!("'{}' is not a function", name)),
@@ -611,8 +612,32 @@ fn values_equal(a: &Value, b: &Value) -> bool {
         (Value::Number(a), Value::Number(b)) => (a - b).abs() < 1e-10,
         (Value::String(a), Value::String(b)) => a == b,
         (Value::Vector(a), Value::Vector(b)) => a.len() == b.len() && a.iter().zip(b).all(|(x, y)| values_equal(x, y)),
-        (Value::Function(a), Value::Function(b)) => a.name == b.name,
+        (Value::Function(a), Value::Function(b)) => {
+            if a.name == "anonymous" && b.name == "anonymous" {
+                Rc::ptr_eq(&a.captures, &b.captures) && a.body == b.body
+            } else {
+                a.name == b.name
+            }
+        }
         (Value::Module(a), Value::Module(b)) => a.name == b.name,
         _ => false,
+    }
+}
+
+fn values_cmp(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
+    match (a, b) {
+        (Value::Number(a), Value::Number(b)) => a.partial_cmp(b),
+        (Value::String(a), Value::String(b)) => Some(a.cmp(b)),
+        (Value::Bool(a), Value::Bool(b)) => Some(a.cmp(b)),
+        (Value::Vector(a), Value::Vector(b)) => {
+            for (x, y) in a.iter().zip(b.iter()) {
+                match values_cmp(x, y) {
+                    Some(std::cmp::Ordering::Equal) => continue,
+                    non_eq => return non_eq,
+                }
+            }
+            Some(a.len().cmp(&b.len()))
+        }
+        _ => None,
     }
 }
