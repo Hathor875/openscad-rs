@@ -977,6 +977,53 @@ mod tests {
         assert!(res.unwrap_err().contains("Recursion detected"));
     }
 
+    #[test]
+    fn test_for_c_basic() {
+        let env = eval_source("
+            v = [for (i = 0; i < 5; i = i + 1) i * 2];
+        ").unwrap();
+        assert_eq!(
+            env.get("v"),
+            Some(crate::interpreter::Value::Vector(vec![
+                crate::interpreter::Value::Number(0.0),
+                crate::interpreter::Value::Number(2.0),
+                crate::interpreter::Value::Number(4.0),
+                crate::interpreter::Value::Number(6.0),
+                crate::interpreter::Value::Number(8.0),
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_for_c_empty_init() {
+        let env = eval_source("
+            list = [[1, 2], [3, 4]];
+            v = [for (; is_list(list) && len(list) > 0; list = list[0]) len(list)];
+        ").unwrap();
+        assert_eq!(
+            env.get("v"),
+            Some(crate::interpreter::Value::Vector(vec![
+                crate::interpreter::Value::Number(2.0),
+                crate::interpreter::Value::Number(2.0),
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_for_c_with_if_filter() {
+        let env = eval_source("
+            v = [for (i = 0; i < 5; i = i + 1) if (i % 2 == 0) i];
+        ").unwrap();
+        assert_eq!(
+            env.get("v"),
+            Some(crate::interpreter::Value::Vector(vec![
+                crate::interpreter::Value::Number(0.0),
+                crate::interpreter::Value::Number(2.0),
+                crate::interpreter::Value::Number(4.0),
+            ]))
+        );
+    }
+
     fn unique_fixture_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
             "openscad-rust-{}-{}",

@@ -356,55 +356,84 @@ impl Evaluator {
         &mut self,
         init: &[Assignment],
         condition: Option<&Expression>,
-        _update: &[Assignment],
+        update: &[Assignment],
         body: &Expression,
     ) -> Result<Value, String> {
-        if init.is_empty() {
-            return Err("for C expression requires at least one binding".into());
+        let mut current_env = self.env.clone();
+
+        // 1. Sequentially evaluate init assignments
+        if !init.is_empty() {
+            let init_env = Environment::with_parent(current_env.clone());
+            for assign in init {
+                let val = if let Some(expr) = &assign.value {
+                    let mut eval = Evaluator::with_depth(Rc::new(init_env.clone()), self.depth);
+                    eval.eval(expr)?
+                } else {
+                    Value::Undef
+                };
+                init_env.define(assign.name.clone(), val);
+            }
+            current_env = Rc::new(init_env);
         }
 
         let mut values = Vec::new();
-        self.eval_for_c_bindings(init, 0, condition, body, &mut values)?;
-        Ok(Value::Vector(values))
-    }
+        let mut iterations = 0;
+        const MAX_ITERATIONS: usize = 1_000_000;
 
-    fn eval_for_c_bindings(
-        &mut self,
-        bindings: &[Assignment],
-        index: usize,
-        condition: Option<&Expression>,
-        body: &Expression,
-        values: &mut Vec<Value>,
-    ) -> Result<(), String> {
-        let binding = &bindings[index];
-        if binding.name.is_empty() {
-            return Err("for C binding requires a variable name".into());
-        }
-        let iterable = binding.value.as_ref()
-            .ok_or_else(|| format!("for C binding '{}' requires an expression", binding.name))?;
-        let iterable = self.eval(iterable)?;
-        let items = match iterable {
-            Value::Vector(items) => items,
-            _ => return Err(format!("for C binding '{}' must evaluate to a vector", binding.name)),
-        };
+        loop {
+            if iterations >= MAX_ITERATIONS {
+                return Err("Maximum iteration limit (1000000) exceeded in C-style for loop".into());
+            }
+            iterations += 1;
 
-        for item in items {
-            let child = Environment::with_parent(self.env.clone());
-            child.define(binding.name.clone(), item);
-            let mut evaluator = Evaluator::new(Rc::new(child));
-            if index + 1 == bindings.len() {
-                let include = match condition {
-                    Some(condition) => evaluator.eval(condition)?.as_bool(),
-                    None => true,
-                };
-                if include {
-                    values.push(evaluator.eval(body)?);
+            // 2. Check condition
+            if let Some(cond_expr) = condition {
+                let mut eval = Evaluator::with_depth(current_env.clone(), self.depth);
+                let cond_val = eval.eval(cond_expr)?;
+                if !cond_val.as_bool() {
+                    break;
+                }
+            }
+
+            // 3. Evaluate body
+            let mut eval = Evaluator::with_depth(current_env.clone(), self.depth);
+            let val = eval.eval(body)?;
+
+            if matches!(body, Expression::Each { .. }) {
+                if let Value::Vector(items) = val {
+                    values.extend(items);
+                } else {
+                    values.push(val);
+                }
+            } else if let Expression::If { else_branch, .. } = body {
+                if else_branch.is_none() && val.is_undef() {
+                    // Filtered out by comprehension if
+                } else {
+                    values.push(val);
                 }
             } else {
-                evaluator.eval_for_c_bindings(bindings, index + 1, condition, body, values)?;
+                values.push(val);
+            }
+
+            // 4. Sequentially evaluate update assignments
+            if !update.is_empty() {
+                let next_env = Environment::with_parent(current_env.clone());
+                for assign in update {
+                    let val = if let Some(expr) = &assign.value {
+                        let mut eval = Evaluator::with_depth(Rc::new(next_env.clone()), self.depth);
+                        eval.eval(expr)?
+                    } else {
+                        Value::Undef
+                    };
+                    next_env.define(assign.name.clone(), val);
+                }
+                current_env = Rc::new(next_env);
+            } else if condition.is_none() {
+                break;
             }
         }
-        Ok(())
+
+        Ok(Value::Vector(values))
     }
 
     fn eval_range(&mut self, start: &Expression, step: Option<&Expression>, end: &Expression) -> Result<Value, String> {

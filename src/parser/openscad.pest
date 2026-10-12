@@ -105,6 +105,7 @@ atom = {
     | let_expr
     | assert_expr
     | echo_expr
+    | for_c_expr
     | for_expr
     | each_expr
     | identifier
@@ -247,6 +248,10 @@ ident_rest = { alphanumeric | "_" | "$" }
 
 assert_expr = { Assert ~ "(" ~ arguments? ~ ")" ~ expression? }
 echo_expr = { Echo ~ "(" ~ arguments? ~ ")" ~ expression? }
+for_c_expr = { For ~ "(" ~ for_c_init? ~ Semi ~ for_c_cond? ~ Semi ~ for_c_update? ~ ")" ~ for_let? ~ (If ~ "(" ~ expression ~ ")")? ~ expression }
+for_c_init = { argument ~ ("," ~ argument)* }
+for_c_cond = { expression }
+for_c_update = { argument ~ ("," ~ argument)* }
 for_expr = { For ~ "(" ~ argument ~ ("," ~ argument)* ~ ")" ~ for_let? ~ (If ~ "(" ~ expression ~ ")")? ~ expression }
 for_let = { Let ~ "(" ~ let_bindings ~ ")" }
 each_expr = { Each ~ expression }

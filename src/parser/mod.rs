@@ -616,6 +616,7 @@ impl Parser {
                 Rule::anonymous_function => return Self::parse_anonymous_function(inner),
                 Rule::if_expr => return Self::parse_if_expression(inner),
                 Rule::assert_expr => return Self::parse_assert_expr(inner),
+                Rule::for_c_expr => return Self::parse_for_c_expr(inner),
                 Rule::for_expr => return Self::parse_for_expr(inner),
                 Rule::each_expr => return Self::parse_each_expr(inner),
                 Rule::echo_expr => return Self::parse_echo_expr(inner),
@@ -916,6 +917,90 @@ impl Parser {
         Ok(Expression::For {
             args,
             condition,
+            body: Box::new(body),
+            span,
+        })
+    }
+
+    fn parse_for_c_expr(pair: Pair<Rule>) -> Result<Expression> {
+        let span = Self::pest_span_to_span(pair.as_span());
+        let mut init = Vec::new();
+        let mut condition = None;
+        let mut update = Vec::new();
+        let mut let_args = Vec::new();
+        let mut expressions = Vec::new();
+
+        for inner in pair.into_inner() {
+            match inner.as_rule() {
+                Rule::for_c_init => {
+                    for arg in inner.into_inner() {
+                        if arg.as_rule() == Rule::argument {
+                            init.push(Self::parse_argument(arg)?);
+                        }
+                    }
+                }
+                Rule::for_c_cond => {
+                    if let Some(expr_pair) = inner.into_inner().next() {
+                        condition = Some(Box::new(Self::parse_expression(expr_pair)?));
+                    }
+                }
+                Rule::for_c_update => {
+                    for arg in inner.into_inner() {
+                        if arg.as_rule() == Rule::argument {
+                            update.push(Self::parse_argument(arg)?);
+                        }
+                    }
+                }
+                Rule::for_let => {
+                    for binding in inner.into_inner() {
+                        if let Rule::let_bindings = binding.as_rule() {
+                            for binding in binding.into_inner() {
+                                if let Rule::let_binding = binding.as_rule() {
+                                    let mut name = String::new();
+                                    let mut value = None;
+                                    for item in binding.into_inner() {
+                                        match item.as_rule() {
+                                            Rule::identifier => name = item.as_str().to_string(),
+                                            Rule::expression => value = Some(Self::parse_expression(item)?),
+                                            _ => {}
+                                        }
+                                    }
+                                    let_args.push(Assignment::new(name, value, Span::default()));
+                                }
+                            }
+                        }
+                    }
+                }
+                Rule::expression => {
+                    expressions.push(Self::parse_expression(inner)?);
+                }
+                _ => {}
+            }
+        }
+
+        let mut body = match expressions.as_slice() {
+            [body] => body.clone(),
+            [if_cond, body] => Expression::If {
+                condition: Box::new(if_cond.clone()),
+                then_branch: Box::new(body.clone()),
+                else_branch: None,
+                span,
+            },
+            _ => return Err(anyhow::anyhow!("Missing for_c body")),
+        };
+
+        if !let_args.is_empty() {
+            body = Expression::Let {
+                args: let_args,
+                body: Box::new(body),
+                span,
+            };
+        }
+
+        Ok(Expression::ForC {
+            init,
+            condition,
+            update,
             body: Box::new(body),
             span,
         })
