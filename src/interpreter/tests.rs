@@ -158,6 +158,16 @@ mod tests {
     }
 
     #[test]
+    fn test_scale_accepts_uniform_scalar() {
+        let parsed = Parser::parse("scale(2) cube(1);").unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        let max_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::NEG_INFINITY, f64::max);
+        assert_eq!(max_x, 2.0);
+    }
+
+    #[test]
     fn test_each_expression() {
         let env = eval_source("x = each [[1, 2], [3, 4]];").unwrap();
         assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![
@@ -475,7 +485,7 @@ mod tests {
 
     #[test]
     fn test_named_color_preserves_child_geometry() {
-        let parsed = Parser::parse("color(\"red\") cube(2);").unwrap();
+        let parsed = Parser::parse("color(\"lime\") cube(2);").unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));
         exec.execute_source(&parsed).unwrap();
         assert!(!exec.build_mesh().unwrap().is_empty());

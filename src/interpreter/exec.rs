@@ -355,6 +355,7 @@ impl Executor {
                     "cyan" => [0.0, 1.0, 1.0, 1.0],
                     "gray" | "grey" => [0.5, 0.5, 0.5, 1.0],
                     "green" => [0.0, 1.0, 0.0, 1.0],
+                    "lime" => [0.0, 1.0, 0.0, 1.0],
                     "magenta" => [1.0, 0.0, 1.0, 1.0],
                     "orange" => [1.0, 0.5, 0.0, 1.0],
                     "pink" => [1.0, 0.75, 0.8, 1.0],
@@ -988,11 +989,27 @@ impl Executor {
                 Ok(Some(()))
             }
             "scale" => {
-                let v = self.get_vector3(arguments)?.unwrap_or([
-                    self.get_arg(arguments, "x")?.unwrap_or(1.0),
-                    self.get_arg(arguments, "y")?.unwrap_or(1.0),
-                    self.get_arg(arguments, "z")?.unwrap_or(1.0),
-                ]);
+                let positional = arguments.iter()
+                    .filter(|argument| argument.name.is_empty())
+                    .next()
+                    .and_then(|argument| argument.value.as_ref());
+                let v = if let Some(expression) = positional {
+                    match self.eval_expr(expression)? {
+                        Value::Number(uniform) => [uniform; 3],
+                        Value::Vector(values) if values.len() == 3 => [
+                            values[0].as_number()?,
+                            values[1].as_number()?,
+                            values[2].as_number()?,
+                        ],
+                        _ => return Err("scale requires a scalar or three-element vector".into()),
+                    }
+                } else {
+                    [
+                        self.get_arg(arguments, "x")?.unwrap_or(1.0),
+                        self.get_arg(arguments, "y")?.unwrap_or(1.0),
+                        self.get_arg(arguments, "z")?.unwrap_or(1.0),
+                    ]
+                };
                 self.csg_stack.push(CsgBuilder::new());
                 for child in children {
                     self.execute(child)?;
