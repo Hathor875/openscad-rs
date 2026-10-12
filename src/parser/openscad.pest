@@ -155,8 +155,10 @@ range = {
 }
 
 vector = {
-    "[" ~ (expression ~ ("," ~ expression)* ~ ","?)? ~ "]"
+    "[" ~ "]"
+    | "[" ~ vector_element ~ ("," ~ vector_element)* ~ ","? ~ "]"
 }
+vector_element = { expression? }
 
 identifier = { Ident }
 

@@ -262,7 +262,7 @@ mod tests {
     #[test]
     fn test_invalid_primitive_dimensions_are_rejected() {
         for input in [
-            "cube([1, 0, 1]);",
+            "cube([-1, 1, 1]);",
             "sphere(r = -1);",
             "circle(r = 1, $fn = 2);",
             "cylinder(h = 1, r = 1, $fs = 0);",

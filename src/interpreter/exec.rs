@@ -862,8 +862,11 @@ impl Executor {
                         self.get_arg(arguments, "z")?.unwrap_or(1.0),
                     ]
                 };
-                if size.iter().any(|value| *value <= 0.0 || !value.is_finite()) {
-                    return Err("cube dimensions must be positive and finite".into());
+                if size.iter().any(|value| *value < 0.0 || !value.is_finite()) {
+                    return Err(format!("cube dimensions must be non-negative and finite: {:?}", size));
+                }
+                if size.iter().any(|value| *value == 0.0) {
+                    return Ok(Some(()));
                 }
                 let center = self.get_bool(arguments, "center", false)?;
                 self.current_builder().add_primitive(Primitive::Cube { size, center });

@@ -844,8 +844,19 @@ impl Parser {
         let mut elements = Vec::new();
         
         for inner in pair.into_inner() {
-            if let Rule::expression = inner.as_rule() {
-                elements.push(Self::parse_expression(inner)?);
+            match inner.as_rule() {
+                Rule::vector_element => {
+                    let elem_span = Self::pest_span_to_span(inner.as_span());
+                    if let Some(expr_pair) = inner.into_inner().next() {
+                        elements.push(Self::parse_expression(expr_pair)?);
+                    } else {
+                        elements.push(Expression::Literal(LiteralValue::Undefined, elem_span));
+                    }
+                }
+                Rule::expression => {
+                    elements.push(Self::parse_expression(inner)?);
+                }
+                _ => {}
             }
         }
         
@@ -1070,6 +1081,20 @@ mod tests {
                 assert!(matches!(**right, crate::ast::Expression::Literal(crate::ast::LiteralValue::Bool(true), _)));
             } else {
                 panic!("Expected BinaryOp");
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_vector_empty_elements() {
+        let input = "x = [1, , 3];";
+        let parsed = Parser::parse(input).unwrap();
+        if let crate::ast::Statement::Assignment(assign) = &parsed.statements[0] {
+            if let Some(crate::ast::Expression::Vector(elems, _)) = &assign.value {
+                assert_eq!(elems.len(), 3);
+                assert!(matches!(elems[1], crate::ast::Expression::Literal(crate::ast::LiteralValue::Undefined, _)));
+            } else {
+                panic!("Expected Vector");
             }
         }
     }
