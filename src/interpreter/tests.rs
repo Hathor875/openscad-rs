@@ -143,6 +143,16 @@ mod tests {
     }
 
     #[test]
+    fn test_filtered_for_expression() {
+        let env = eval_source("x = [for (i = [0:4]) if (i % 2 == 0) i];").unwrap();
+        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![
+            crate::interpreter::Value::Number(0.0),
+            crate::interpreter::Value::Number(2.0),
+            crate::interpreter::Value::Number(4.0),
+        ])));
+    }
+
+    #[test]
     fn test_nested_for_expression() {
         let env = eval_source("x = [for (i = [1:2], j = [10:11]) i + j];").unwrap();
         assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![

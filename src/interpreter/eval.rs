@@ -33,7 +33,7 @@ impl Evaluator {
             Expression::FunctionDef { params, body, .. } => self.eval_function_def(params, body),
             Expression::Assert { args, body, .. } => self.eval_assert(args, body.as_deref()),
             Expression::Echo { args, .. } => self.eval_echo(args),
-            Expression::For { args, body, .. } => self.eval_for(args, body),
+            Expression::For { args, condition, body, .. } => self.eval_for(args, condition.as_deref(), body),
             Expression::Each { body, .. } => self.eval_each(body),
         }
     }
@@ -152,13 +152,13 @@ impl Evaluator {
         Ok(Value::Vector(values))
     }
 
-    fn eval_for(&mut self, bindings: &[Assignment], body: &Expression) -> Result<Value, String> {
+    fn eval_for(&mut self, bindings: &[Assignment], condition: Option<&Expression>, body: &Expression) -> Result<Value, String> {
         if bindings.is_empty() {
             return Err("for expression requires at least one binding".into());
         }
 
         let mut values = Vec::new();
-        self.eval_for_bindings(bindings, 0, body, &mut values)?;
+        self.eval_for_bindings(bindings, 0, condition, body, &mut values)?;
         Ok(Value::Vector(values))
     }
 
@@ -166,6 +166,7 @@ impl Evaluator {
         &mut self,
         bindings: &[Assignment],
         index: usize,
+        condition: Option<&Expression>,
         body: &Expression,
         values: &mut Vec<Value>,
     ) -> Result<(), String> {
@@ -186,9 +187,15 @@ impl Evaluator {
             child.define(binding.name.clone(), item);
             let mut evaluator = Evaluator::new(Rc::new(child));
             if index + 1 == bindings.len() {
-                values.push(evaluator.eval(body)?);
+                let include = match condition {
+                    Some(condition) => evaluator.eval(condition)?.as_bool(),
+                    None => true,
+                };
+                if include {
+                    values.push(evaluator.eval(body)?);
+                }
             } else {
-                evaluator.eval_for_bindings(bindings, index + 1, body, values)?;
+                evaluator.eval_for_bindings(bindings, index + 1, condition, body, values)?;
             }
         }
         Ok(())

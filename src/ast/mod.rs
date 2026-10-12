@@ -108,6 +108,7 @@ pub enum Expression {
     },
     For {
         args: Vec<Assignment>,
+        condition: Option<Box<Expression>>,
         body: Box<Expression>,
         span: Span,
     },

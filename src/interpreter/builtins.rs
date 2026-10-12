@@ -44,6 +44,7 @@ impl Builtins {
         functions.insert("search".to_string(), builtin_search as BuiltinFn);
         functions.insert("version".to_string(), builtin_version as BuiltinFn);
         functions.insert("version_num".to_string(), builtin_version_num as BuiltinFn);
+        functions.insert("ident".to_string(), builtin_ident as BuiltinFn);
         
         functions.insert("undef".to_string(), builtin_undef as BuiltinFn);
         functions.insert("is_undef".to_string(), builtin_is_undef as BuiltinFn);
@@ -256,7 +257,21 @@ fn builtin_version_num(args: Vec<Value>) -> Result<Value, String> {
     if !args.is_empty() {
         return Err("version_num expects no arguments".into());
     }
+
     Ok(Value::Number(20240100.0))
+}
+
+fn builtin_ident(args: Vec<Value>) -> Result<Value, String> {
+    let size = expect_num(&args, 1)?[0];
+    if size < 1.0 || size.fract() != 0.0 || size > 32.0 {
+        return Err("ident size must be an integer between 1 and 32".into());
+    }
+    let size = size as usize;
+    Ok(Value::Vector((0..size).map(|row| {
+        Value::Vector((0..size).map(|column| {
+            Value::Number(if row == column { 1.0 } else { 0.0 })
+        }).collect())
+    }).collect()))
 }
 
 fn builtin_undef(args: Vec<Value>) -> Result<Value, String> {

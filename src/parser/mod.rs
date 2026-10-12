@@ -788,7 +788,7 @@ impl Parser {
 
     fn parse_for_expr(pair: Pair<Rule>) -> Result<Expression> {
         let mut args = Vec::new();
-        let mut body = None;
+        let mut expressions = Vec::new();
         let span = Self::pest_span_to_span(pair.as_span());
         for inner in pair.into_inner() {
             match inner.as_rule() {
@@ -796,14 +796,20 @@ impl Parser {
                     args.push(Self::parse_argument(inner)?);
                 }
                 Rule::expression => {
-                    body = Some(Self::parse_expression(inner)?);
+                    expressions.push(Self::parse_expression(inner)?);
                 }
                 _ => {}
             }
         }
+        let (condition, body) = match expressions.as_slice() {
+            [body] => (None, body.clone()),
+            [condition, body] => (Some(Box::new(condition.clone())), body.clone()),
+            _ => return Err(anyhow::anyhow!("Missing for body")),
+        };
         Ok(Expression::For {
             args,
-            body: Box::new(body.ok_or_else(|| anyhow::anyhow!("Missing for body"))?),
+            condition,
+            body: Box::new(body),
             span,
         })
     }
