@@ -81,6 +81,26 @@ impl Mesh {
         }
     }
 
+    fn valid_face(&self, face: &[usize; 3]) -> bool {
+        if face.iter().any(|&index| index >= self.vertices.len()) {
+            return false;
+        }
+        let a = self.vertices[face[0]];
+        let b = self.vertices[face[1]];
+        let c = self.vertices[face[2]];
+        if !a.iter().chain(b.iter()).chain(c.iter()).all(|value| value.is_finite()) {
+            return false;
+        }
+        let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let cross = [
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        ];
+        cross.iter().map(|value| value * value).sum::<f64>() > f64::EPSILON
+    }
+
     pub fn from_stl(data: &[u8]) -> Result<Self, String> {
             let mut mesh = Mesh::new();
             if data.len() >= 84 {
@@ -423,6 +443,9 @@ impl Mesh {
         }
         let mut tri_indices: Vec<u64> = Vec::with_capacity(m.faces.len() * 3);
         for f in &m.faces {
+            if !m.valid_face(f) {
+                continue;
+            }
             tri_indices.extend_from_slice(&[f[0] as u64, f[1] as u64, f[2] as u64]);
         }
         Manifold::from_mesh_f64(&vert_props, 3, &tri_indices)
@@ -447,6 +470,9 @@ impl Mesh {
         let mut out = String::new();
         out.push_str("solid openscad\n");
         for f in &self.faces {
+            if !self.valid_face(f) {
+                continue;
+            }
             let a = self.vertices[f[0]];
             let b = self.vertices[f[1]];
             let c = self.vertices[f[2]];

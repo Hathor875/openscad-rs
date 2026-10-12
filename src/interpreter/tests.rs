@@ -323,6 +323,21 @@ mod tests {
     }
 
     #[test]
+    fn test_stl_export_skips_invalid_faces() {
+        let mesh = crate::csg::Mesh {
+            vertices: vec![
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+            ],
+            faces: vec![[0, 1, 2], [0, 2, 9], [0, 0, 1]],
+            normals: Vec::new(),
+        };
+        let stl = mesh.to_stl();
+        assert_eq!(stl.matches("facet normal").count(), 1);
+    }
+
+    #[test]
     fn test_linear_extrude_builds_solid_mesh() {
         let input = "linear_extrude(height = 3) polygon(points = [[0,0], [2,0], [2,1], [0,1]]);";
         let parsed = Parser::parse(input).unwrap();
