@@ -4,10 +4,14 @@ use crate::interpreter::value::{Value, Environment, ModuleValue};
 use crate::interpreter::eval::Evaluator;
 use crate::csg::{Primitive, CsgBuilder};
 use anyhow::Result;
+use std::collections::HashSet;
+use std::path::{Path, PathBuf};
 
 pub struct Executor {
     pub env: Rc<Environment>,
     csg_stack: Vec<crate::csg::CsgBuilder>,
+    source_stack: Vec<PathBuf>,
+    loading: HashSet<PathBuf>,
 }
 
 impl Executor {
@@ -15,7 +19,31 @@ impl Executor {
         Self {
             env,
             csg_stack: vec![crate::csg::CsgBuilder::new()],
+            source_stack: Vec::new(),
+            loading: HashSet::new(),
         }
+    }
+
+    pub fn execute_source(&mut self, source: &crate::ast::SourceFile) -> Result<(), String> {
+        let path = if source.path.is_empty() {
+            None
+        } else {
+            Some(Self::canonical_path(Path::new(&source.path))?)
+        };
+        if let Some(path) = &path {
+            if !self.loading.insert(path.clone()) {
+                return Err(format!("Cyclic source include '{}'", path.display()));
+            }
+            self.source_stack.push(path.clone());
+        }
+
+        let result = source.statements.iter().try_for_each(|stmt| self.execute(stmt).map(|_| ()));
+
+        if let Some(path) = path {
+            self.source_stack.pop();
+            self.loading.remove(&path);
+        }
+        result
     }
     
     fn current_builder(&mut self) -> &mut crate::csg::CsgBuilder {
@@ -43,9 +71,47 @@ impl Executor {
                 }
                 Ok(None)
             }
-            Statement::Include(_, _) => Ok(None),
-            Statement::Use(_, _) => Ok(None),
+            Statement::Include(path, _) => self.exec_source_directive(path, true).map(|_| None),
+            Statement::Use(path, _) => self.exec_source_directive(path, false).map(|_| None),
         }
+    }
+
+    fn exec_source_directive(&mut self, path: &str, include_body: bool) -> Result<(), String> {
+        let resolved = self.resolve_source_path(path)?;
+        let source = crate::parser::Parser::parse_file(&resolved)
+            .map_err(|error| format!("Failed to load '{}': {}", resolved.display(), error))?;
+
+        if include_body {
+            self.execute_source(&source)
+        } else {
+            for statement in &source.statements {
+                if matches!(statement, Statement::FunctionDef { .. } | Statement::ModuleDef { .. }) {
+                    self.execute(statement)?;
+                }
+            }
+            Ok(())
+        }
+    }
+
+    fn resolve_source_path(&self, path: &str) -> Result<PathBuf, String> {
+        let requested = Path::new(path);
+        let candidate = if requested.is_absolute() {
+            requested.to_path_buf()
+        } else if let Some(parent) = self.source_stack.last().and_then(|path| path.parent()) {
+            parent.join(requested)
+        } else {
+            requested.to_path_buf()
+        };
+        if candidate.is_file() {
+            Ok(Self::canonical_path(&candidate)?)
+        } else {
+            Err(format!("Source file '{}' not found", candidate.display()))
+        }
+    }
+
+    fn canonical_path(path: &Path) -> Result<PathBuf, String> {
+        path.canonicalize()
+            .map_err(|error| format!("Cannot resolve source file '{}': {}", path.display(), error))
     }
     
     fn exec_assignment(&mut self, assign: &Assignment) -> Result<(), String> {

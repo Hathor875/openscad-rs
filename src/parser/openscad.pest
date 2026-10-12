@@ -4,8 +4,9 @@ module = { SOI ~ top_level* ~ EOI }
 
 top_level = { statement | include_stmt | use_directive }
 
-include_stmt = { Include ~ "<" ~ string_literal ~ ">" }
-use_directive = { Use ~ "<" ~ string_literal ~ ">" }
+include_stmt = { Include ~ "<" ~ include_path ~ ">" }
+use_directive = { Use ~ "<" ~ include_path ~ ">" }
+include_path = { (!">" ~ ANY)+ }
 
 statement = {
     function_def

@@ -5,6 +5,8 @@ use pest::Span as PestSpan;
 use pest_derive::Parser;
 use text_size::TextSize;
 use anyhow::Result;
+use std::fs;
+use std::path::Path;
 
 #[derive(Parser)]
 #[grammar = "parser/openscad.pest"]
@@ -14,9 +16,18 @@ pub struct Parser;
 
 impl Parser {
     pub fn parse(input: &str) -> Result<SourceFile> {
+        Self::parse_with_path(input, String::new())
+    }
+
+    pub fn parse_file(path: impl AsRef<Path>) -> Result<SourceFile> {
+        let path = path.as_ref();
+        let input = fs::read_to_string(path)?;
+        Self::parse_with_path(&input, path.to_string_lossy().into_owned())
+    }
+
+    fn parse_with_path(input: &str, path: String) -> Result<SourceFile> {
         let pairs = OpenSCADParser::parse(Rule::module, input)?;
-        // eprintln!("DEBUG parse: pairs count = {}", pairs.len());
-        let mut file = SourceFile::new(String::new());
+        let mut file = SourceFile::new(path);
         
         for pair in pairs {
             // eprintln!("DEBUG parse: pair rule = {:?}", pair.as_rule());
@@ -48,14 +59,18 @@ impl Parser {
                             }
                         }
                         Rule::include_stmt => {
-                            if let Some(inner2) = inner.clone().into_inner().next() {
-                                let path = inner2.as_str().to_string();
+                            if let Some(inner2) = inner.clone().into_inner()
+                                .find(|pair| pair.as_rule() == Rule::include_path)
+                            {
+                                let path = inner2.as_str().trim().to_string();
                                 file.statements.push(Statement::Include(path, Span::default()));
                             }
                         }
                         Rule::use_directive => {
-                            if let Some(inner2) = inner.clone().into_inner().next() {
-                                let path = inner2.as_str().to_string();
+                            if let Some(inner2) = inner.clone().into_inner()
+                                .find(|pair| pair.as_rule() == Rule::include_path)
+                            {
+                                let path = inner2.as_str().trim().to_string();
                                 file.statements.push(Statement::Use(path, Span::default()));
                             }
                         }

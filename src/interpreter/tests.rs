@@ -3,6 +3,8 @@ mod tests {
     use crate::parser::Parser;
     use crate::interpreter::{Executor, Environment};
     use std::rc::Rc;
+    use std::fs;
+    use std::path::PathBuf;
 
     fn eval_source(input: &str) -> Result<Rc<Environment>, String> {
         let parsed = Parser::parse(input).map_err(|e| format!("Parse error: {:?}", e))?;
@@ -144,5 +146,67 @@ mod tests {
             env.get("x"),
             Some(crate::interpreter::Value::String("line\nλ!".to_string()))
         );
+    }
+
+    #[test]
+    fn test_include_loads_relative_assignments() {
+        let dir = unique_fixture_dir("include");
+        fs::create_dir_all(&dir).unwrap();
+        let library = dir.join("library.scad");
+        let main = dir.join("main.scad");
+        fs::write(&library, "included_value = 42;").unwrap();
+        fs::write(&main, "include <library.scad>\nresult = included_value + 1;").unwrap();
+
+        let source = Parser::parse_file(&main).unwrap();
+        let env = Rc::new(Environment::new());
+        let mut exec = Executor::new(env.clone());
+        exec.execute_source(&source).unwrap();
+        assert_eq!(env.get("result"), Some(crate::interpreter::Value::Number(43.0)));
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn test_use_loads_definitions_without_assignments() {
+        let dir = unique_fixture_dir("use");
+        fs::create_dir_all(&dir).unwrap();
+        let library = dir.join("library.scad");
+        let main = dir.join("main.scad");
+        fs::write(&library, "library_value = 42; function increment(x) = x + 1;").unwrap();
+        fs::write(&main, "use <library.scad>\nresult = increment(2);").unwrap();
+
+        let source = Parser::parse_file(&main).unwrap();
+        let env = Rc::new(Environment::new());
+        let mut exec = Executor::new(env.clone());
+        exec.execute_source(&source).unwrap();
+        assert_eq!(env.get("result"), Some(crate::interpreter::Value::Number(3.0)));
+        assert_eq!(env.get("library_value"), None);
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
+    fn test_include_cycle_is_rejected() {
+        let dir = unique_fixture_dir("cycle");
+        fs::create_dir_all(&dir).unwrap();
+        let first = dir.join("first.scad");
+        let second = dir.join("second.scad");
+        fs::write(&first, "include <second.scad>").unwrap();
+        fs::write(&second, "include <first.scad>").unwrap();
+
+        let source = Parser::parse_file(&first).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        let error = exec.execute_source(&source).unwrap_err();
+        assert!(error.contains("Cyclic source include"));
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    fn unique_fixture_dir(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "openscad-rust-{}-{}",
+            name,
+            std::process::id()
+        ))
     }
 }
