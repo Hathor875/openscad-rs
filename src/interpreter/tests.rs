@@ -149,6 +149,15 @@ mod tests {
     }
 
     #[test]
+    fn test_scalar_vector_arithmetic_and_scalar_rotation() {
+        let parsed = Parser::parse("rotate(45) translate(2 * [1, 0, 0]) cube(1);").unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert!(mesh.vertices.iter().any(|vertex| vertex[0] > 1.0 && vertex[1] > 1.0));
+    }
+
+    #[test]
     fn test_each_expression() {
         let env = eval_source("x = each [[1, 2], [3, 4]];").unwrap();
         assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![

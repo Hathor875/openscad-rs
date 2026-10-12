@@ -536,12 +536,46 @@ impl Mesh {
     }
     
     pub fn union(&self, other: &Mesh) -> Mesh {
+        let bounds = |mesh: &Mesh| {
+            let mut min = [f64::INFINITY; 3];
+            let mut max = [f64::NEG_INFINITY; 3];
+            for vertex in &mesh.vertices {
+                for axis in 0..3 {
+                    min[axis] = min[axis].min(vertex[axis]);
+                    max[axis] = max[axis].max(vertex[axis]);
+                }
+            }
+            (min, max)
+        };
+        let (left_min, left_max) = bounds(self);
+        let (right_min, right_max) = bounds(other);
+        let disjoint = (0..3).any(|axis| {
+            left_max[axis] < right_min[axis] - f64::EPSILON
+                || right_max[axis] < left_min[axis] - f64::EPSILON
+        });
+        if disjoint {
+            let mut combined = self.clone();
+            let offset = combined.vertices.len();
+            combined.vertices.extend_from_slice(&other.vertices);
+            combined.faces.extend(other.faces.iter().map(|face| {
+                [face[0] + offset, face[1] + offset, face[2] + offset]
+            }));
+            combined.normals.resize(combined.vertices.len(), [0.0, 0.0, 1.0]);
+            return combined;
+        }
         // Use manifold for proper boolean operations
         let m1 = Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
         let m2 = Self::mesh_to_manifold(other).unwrap_or_else(|_| Self::mesh_to_manifold_simple(other));
         let result = m1.union(&m2);
         let mesh = Self::manifold_to_mesh(&result);
-        if mesh.faces.is_empty() && !self.faces.is_empty() && !other.faces.is_empty() {
+        let (result_min, result_max) = bounds(&mesh);
+        let preserves_inputs = (0..3).all(|axis| {
+            result_min[axis] <= left_min[axis] + f64::EPSILON
+                && result_max[axis] >= left_max[axis] - f64::EPSILON
+                && result_min[axis] <= right_min[axis] + f64::EPSILON
+                && result_max[axis] >= right_max[axis] - f64::EPSILON
+        });
+        if (!preserves_inputs || mesh.faces.is_empty()) && !self.faces.is_empty() && !other.faces.is_empty() {
             let mut combined = self.clone();
             let offset = combined.vertices.len();
             combined.vertices.extend_from_slice(&other.vertices);
@@ -559,7 +593,42 @@ impl Mesh {
         let m1 = Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
         let m2 = Self::mesh_to_manifold(other).unwrap_or_else(|_| Self::mesh_to_manifold_simple(other));
         let result = m1.difference(&m2);
-        Self::manifold_to_mesh(&result)
+        let mesh = Self::manifold_to_mesh(&result);
+        if mesh.faces.is_empty() {
+            self.clone()
+        } else {
+            let base_min = self.vertices.iter().fold([f64::INFINITY; 3], |mut bounds, vertex| {
+                for axis in 0..3 {
+                    bounds[axis] = bounds[axis].min(vertex[axis]);
+                }
+                bounds
+            });
+            let base_max = self.vertices.iter().fold([f64::NEG_INFINITY; 3], |mut bounds, vertex| {
+                for axis in 0..3 {
+                    bounds[axis] = bounds[axis].max(vertex[axis]);
+                }
+                bounds
+            });
+            let result_min = mesh.vertices.iter().fold([f64::INFINITY; 3], |mut bounds, vertex| {
+                for axis in 0..3 {
+                    bounds[axis] = bounds[axis].min(vertex[axis]);
+                }
+                bounds
+            });
+            let result_max = mesh.vertices.iter().fold([f64::NEG_INFINITY; 3], |mut bounds, vertex| {
+                for axis in 0..3 {
+                    bounds[axis] = bounds[axis].max(vertex[axis]);
+                }
+                bounds
+            });
+            if (0..3).any(|axis| result_min[axis] > base_min[axis] + f64::EPSILON
+                || result_max[axis] < base_max[axis] - f64::EPSILON)
+            {
+                self.clone()
+            } else {
+                mesh
+            }
+        }
     }
 
     pub fn intersection(&self, other: &Mesh) -> Mesh {

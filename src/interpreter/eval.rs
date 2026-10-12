@@ -81,9 +81,28 @@ impl Evaluator {
         // eprintln!("DEBUG eval_binary: op={:?}, right_val={:?}", op, right_val);
 
         Ok(match op {
-            BinaryOp::Plus => Value::Number(left_val.as_number()? + right_val.as_number()?),
-            BinaryOp::Minus => Value::Number(left_val.as_number()? - right_val.as_number()?),
-            BinaryOp::Multiply => Value::Number(left_val.as_number()? * right_val.as_number()?),
+            BinaryOp::Plus => match (left_val, right_val) {
+                (Value::Vector(left), Value::Vector(right)) if left.len() == right.len() =>
+                    Value::Vector(left.into_iter().zip(right).map(|(a, b)| {
+                        Ok(Value::Number(a.as_number()? + b.as_number()?))
+                    }).collect::<Result<Vec<_>, String>>()?),
+                (left, right) => Value::Number(left.as_number()? + right.as_number()?),
+            },
+            BinaryOp::Minus => match (left_val, right_val) {
+                (Value::Vector(left), Value::Vector(right)) if left.len() == right.len() =>
+                    Value::Vector(left.into_iter().zip(right).map(|(a, b)| {
+                        Ok(Value::Number(a.as_number()? - b.as_number()?))
+                    }).collect::<Result<Vec<_>, String>>()?),
+                (left, right) => Value::Number(left.as_number()? - right.as_number()?),
+            },
+            BinaryOp::Multiply => match (left_val, right_val) {
+                (Value::Number(scalar), Value::Vector(vector))
+                | (Value::Vector(vector), Value::Number(scalar)) =>
+                    Value::Vector(vector.into_iter().map(|value| {
+                        Ok(Value::Number(value.as_number()? * scalar))
+                    }).collect::<Result<Vec<_>, String>>()?),
+                (left, right) => Value::Number(left.as_number()? * right.as_number()?),
+            },
             BinaryOp::Divide => {
                 let r = right_val.as_number()?;
                 if r == 0.0 { return Err("Division by zero".into()); }

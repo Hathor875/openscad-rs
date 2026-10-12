@@ -37,7 +37,42 @@ impl Executor {
             self.source_stack.push(path.clone());
         }
 
-        let result = source.statements.iter().try_for_each(|stmt| self.execute(stmt).map(|_| ()));
+        let result = (|| {
+            let root_source = self.source_stack.len() == 1;
+            if root_source {
+                for stmt in &source.statements {
+                    match stmt {
+                        Statement::ModuleDef { name, params, body, .. } =>
+                            self.exec_module_def(name, params, body, &ModuleModifiers::default())?,
+                        Statement::FunctionDef { name, params, body, .. } =>
+                            self.exec_function_def(name, params, body)?,
+                        _ => {}
+                    }
+                }
+                for stmt in &source.statements {
+                    if matches!(stmt, Statement::Include(_, _) | Statement::Use(_, _)) {
+                        self.execute(stmt)?;
+                    }
+                }
+                for stmt in &source.statements {
+                    if let Statement::Assignment(assign) = stmt {
+                        self.exec_assignment(assign)?;
+                    }
+                }
+                source.statements.iter()
+                    .filter(|stmt| !matches!(
+                        stmt,
+                        Statement::Assignment(_)
+                            | Statement::ModuleDef { .. }
+                            | Statement::FunctionDef { .. }
+                            | Statement::Include(_, _)
+                            | Statement::Use(_, _)
+                    ))
+                    .try_for_each(|stmt| self.execute(stmt).map(|_| ()))
+            } else {
+                source.statements.iter().try_for_each(|stmt| self.execute(stmt).map(|_| ()))
+            }
+        })();
 
         if let Some(path) = path {
             self.source_stack.pop();
@@ -56,11 +91,31 @@ impl Executor {
         self.csg_stack.last_mut().unwrap()
     }
 
+    fn child_nodes(&mut self, children: &[Statement]) -> Result<Vec<crate::csg::CsgNode>, String> {
+        let child_env = Environment::with_parent(self.env.clone());
+        let mut child_exec = Executor::new(Rc::new(child_env));
+        let mut nodes = Vec::new();
+        for child in children {
+            child_exec.csg_stack.push(CsgBuilder::new());
+            child_exec.execute(child)?;
+            if let Some(node) = child_exec.csg_stack.pop().unwrap().build() {
+                nodes.push(node);
+            }
+        }
+        Ok(nodes)
+    }
+
     fn execute_with_forwarded_children(
         &mut self,
         stmt: &Statement,
         forwarded: &[Statement],
     ) -> Result<Option<Value>, String> {
+        if let Statement::Block { statements, .. } = stmt {
+            for statement in statements {
+                self.execute_with_forwarded_children(statement, forwarded)?;
+            }
+            return Ok(None);
+        }
         if let Statement::ModuleInstantiation { name, args, children, .. } = stmt {
             if name == "children" {
                 for child in forwarded {
@@ -184,20 +239,34 @@ impl Executor {
     }
     
     fn get_arg(&mut self, arguments: &[Assignment], name: &str) -> Result<Option<f64>, String> {
-        match arguments.iter().find(|a| {
+        if let Some(argument) = arguments.iter().find(|a| {
             a.name == name || a.name.strip_prefix('$') == Some(name)
         }) {
-            Some(a) => {
-                if let Some(expr) = &a.value {
+            if let Some(expr) = &argument.value {
                     let v = self.eval_expr(expr)?;
                     let num = v.as_number()?;
-                    Ok(Some(num))
-                } else {
-                    Ok(None)
-                }
+                    return Ok(Some(num));
+            } else {
+                return Ok(None);
             }
+
+        }
+        let value = self.env.get(name)
+            .or_else(|| self.env.get(&format!("${name}")));
+        match value {
+            Some(value) => Ok(Some(value.as_number()?)),
             None => Ok(None),
         }
+    }
+
+    fn get_positional_arg(&mut self, arguments: &[Assignment], index: usize) -> Result<Option<f64>, String> {
+        let Some(argument) = arguments.iter().filter(|argument| argument.name.is_empty()).nth(index) else {
+            return Ok(None);
+        };
+        argument.value.as_ref()
+            .map(|expression| self.eval_expr(expression).and_then(|value| value.as_number()).map(Some))
+            .transpose()
+            .map(|value| value.flatten())
     }
 
     fn get_string(&mut self, arguments: &[Assignment], name: &str) -> Result<Option<String>, String> {
@@ -689,7 +758,7 @@ impl Executor {
             }
             "sphere" => {
                 let r = {
-                    let r_val = self.get_arg(arguments, "r")?;
+                    let r_val = self.get_arg(arguments, "r")?.or(self.get_positional_arg(arguments, 0)?);
                     let d_val = self.get_arg(arguments, "d")?;
                     r_val.or_else(|| d_val.map(|d| d / 2.0)).unwrap_or(1.0)
                 };
@@ -705,8 +774,8 @@ impl Executor {
                 Ok(Some(()))
             }
             "cylinder" => {
-                let h = self.get_arg(arguments, "h")?.unwrap_or(1.0);
-                let r = self.get_arg(arguments, "r")?;
+                let h = self.get_arg(arguments, "h")?.or(self.get_positional_arg(arguments, 0)?).unwrap_or(1.0);
+                let r = self.get_arg(arguments, "r")?.or(self.get_positional_arg(arguments, 1)?);
                 let d = self.get_arg(arguments, "d")?.map(|value| value / 2.0);
                 let r1 = self.get_arg(arguments, "r1")?.or(r).or(d).unwrap_or(1.0);
                 let r2 = self.get_arg(arguments, "r2")?.or(r).or(d).unwrap_or(r1);
@@ -742,7 +811,7 @@ impl Executor {
             }
             "circle" => {
                 let r = {
-                    let r_val = self.get_arg(arguments, "r")?;
+                    let r_val = self.get_arg(arguments, "r")?.or(self.get_positional_arg(arguments, 0)?);
                     let d_val = self.get_arg(arguments, "d")?;
                     r_val.or_else(|| d_val.map(|d| d / 2.0)).unwrap_or(1.0)
                 };
@@ -771,7 +840,7 @@ impl Executor {
                 Ok(Some(()))
             }
             "linear_extrude" => {
-                let height = self.get_arg(arguments, "height")?.unwrap_or(1.0);
+                let height = self.get_arg(arguments, "height")?.or(self.get_positional_arg(arguments, 0)?).unwrap_or(1.0);
                 if height <= 0.0 {
                     return Err("linear_extrude height must be positive".into());
                 }
@@ -864,11 +933,20 @@ impl Executor {
                 Ok(Some(()))
             }
             "rotate" => {
-                let v = self.get_vector3(arguments)?.unwrap_or([
-                    self.get_arg(arguments, "x")?.unwrap_or(0.0),
-                    self.get_arg(arguments, "y")?.unwrap_or(0.0),
-                    self.get_arg(arguments, "z")?.unwrap_or(0.0),
-                ]);
+                let v = if let Some(argument) = arguments.iter().find(|argument| argument.name.is_empty()) {
+                    match argument.value.as_ref().map(|expr| self.eval_expr(expr)).transpose()? {
+                        Some(Value::Number(angle)) => [0.0, 0.0, angle],
+                        Some(Value::Vector(_)) => self.get_vector3(arguments)?.unwrap(),
+                        Some(_) => return Err("rotation must be a number or vector".into()),
+                        None => [0.0, 0.0, 0.0],
+                    }
+                } else {
+                    [
+                        self.get_arg(arguments, "x")?.unwrap_or(0.0),
+                        self.get_arg(arguments, "y")?.unwrap_or(0.0),
+                        self.get_arg(arguments, "z")?.unwrap_or(0.0),
+                    ]
+                };
                 self.csg_stack.push(CsgBuilder::new());
                 for child in children {
                     self.execute(child)?;
@@ -951,32 +1029,38 @@ impl Executor {
             }
             // Boolean operations
             "union" => {
-                self.csg_stack.push(CsgBuilder::new());
-                for child in children {
-                    self.execute(child)?;
-                }
-                if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
-                    self.current_builder().union(child_csg);
+                let mut nodes = self.child_nodes(children)?.into_iter();
+                if let Some(first) = nodes.next() {
+                    self.current_builder().union(first);
+                    for node in nodes {
+                        self.current_builder().union(node);
+                    }
                 }
                 Ok(Some(()))
             }
             "difference" => {
-                self.csg_stack.push(CsgBuilder::new());
-                for child in children {
-                    self.execute(child)?;
-                }
-                if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
-                    self.current_builder().difference(child_csg);
+                let mut nodes = self.child_nodes(children)?.into_iter();
+                if let Some(first) = nodes.next() {
+                    let mut base = CsgBuilder::from_node(first);
+                    for node in nodes {
+                        base.difference(node);
+                    }
+                    if let Some(result) = base.build() {
+                        self.current_builder().union(result);
+                    }
                 }
                 Ok(Some(()))
             }
             "intersection" => {
-                self.csg_stack.push(CsgBuilder::new());
-                for child in children {
-                    self.execute(child)?;
-                }
-                if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
-                    self.current_builder().intersection(child_csg);
+                let mut nodes = self.child_nodes(children)?.into_iter();
+                if let Some(first) = nodes.next() {
+                    let mut base = CsgBuilder::from_node(first);
+                    for node in nodes {
+                        base.intersection(node);
+                    }
+                    if let Some(result) = base.build() {
+                        self.current_builder().union(result);
+                    }
                 }
                 Ok(Some(()))
             }

@@ -137,10 +137,22 @@ impl Parser {
                 }
                 Rule::child_block => {
                     for stmt in inner.into_inner() {
-                        if let Rule::statement = stmt.as_rule() {
-                            if let Some(s) = Self::parse_statement(stmt)? {
-                                children.push(s);
+                        match stmt.as_rule() {
+                            Rule::statement => {
+                                if let Some(s) = Self::parse_statement(stmt)? {
+                                    children.push(s);
+                                }
                             }
+                            Rule::block => {
+                                for nested in stmt.into_inner() {
+                                    if let Rule::statement = nested.as_rule() {
+                                        if let Some(s) = Self::parse_statement(nested)? {
+                                            children.push(s);
+                                        }
+                                    }
+                                }
+                            }
+                            _ => {}
                         }
                     }
                 }
