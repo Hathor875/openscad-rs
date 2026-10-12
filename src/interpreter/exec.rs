@@ -532,12 +532,22 @@ impl Executor {
                 if size <= 0.0 {
                     return Err("text size must be positive".into());
                 }
+                let halign = self.get_string(arguments, "halign")?
+                    .unwrap_or_else(|| "left".to_string());
+                let valign = self.get_string(arguments, "valign")?
+                    .unwrap_or_else(|| "baseline".to_string());
+                if !matches!(halign.as_str(), "left" | "center" | "right") {
+                    return Err("text halign must be left, center, or right".into());
+                }
+                if !matches!(valign.as_str(), "baseline" | "bottom" | "center" | "top") {
+                    return Err("text valign must be baseline, bottom, center, or top".into());
+                }
                 self.current_builder().add_primitive(Primitive::Text {
                     text,
                     size,
                     font: String::new(),
-                    halign: String::from("left"),
-                    valign: String::from("baseline"),
+                    halign,
+                    valign,
                 });
                 Ok(Some(()))
             }

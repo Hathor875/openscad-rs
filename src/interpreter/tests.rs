@@ -461,6 +461,21 @@ mod tests {
     }
 
     #[test]
+    fn test_text_alignment_positions_geometry() {
+        let parsed = Parser::parse(
+            "text(\"AB\", size = 10, halign = \"center\", valign = \"top\");",
+        ).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        let min_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::INFINITY, f64::min);
+        let max_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::NEG_INFINITY, f64::max);
+        let min_y = mesh.vertices.iter().map(|vertex| vertex[1]).fold(f64::INFINITY, f64::min);
+        let max_y = mesh.vertices.iter().map(|vertex| vertex[1]).fold(f64::NEG_INFINITY, f64::max);
+        assert_eq!([min_x, max_x, min_y, max_y], [-6.5, 6.5, -10.0, 0.0]);
+    }
+
+    #[test]
     fn test_linear_extrude_builds_solid_mesh() {
         let input = "linear_extrude(height = 3) polygon(points = [[0,0], [2,0], [2,1], [0,1]]);";
         let parsed = Parser::parse(input).unwrap();

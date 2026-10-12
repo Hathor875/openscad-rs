@@ -258,18 +258,31 @@ impl Mesh {
         }
     }
 
-    pub fn text(text: &str, size: f64) -> Self {
+    pub fn text(text: &str, size: f64, halign: &str, valign: &str) -> Self {
         let glyph_width = size * 0.6;
         let spacing = size * 0.1;
+        let width = text.chars().count() as f64 * glyph_width
+            + text.chars().count().saturating_sub(1) as f64 * spacing;
+        let offset_x = match halign {
+            "center" => -width / 2.0,
+            "right" => -width,
+            _ => 0.0,
+        };
+        let offset_y = match valign {
+            "center" => -size / 2.0,
+            "top" => -size,
+            "baseline" | "bottom" => 0.0,
+            _ => 0.0,
+        };
         let mut mesh = Mesh::new();
         for (index, _) in text.chars().enumerate() {
-            let x = index as f64 * (glyph_width + spacing);
+            let x = offset_x + index as f64 * (glyph_width + spacing);
             let base = mesh.vertices.len();
             mesh.vertices.extend([
-                [x, 0.0, 0.0],
-                [x + glyph_width, 0.0, 0.0],
-                [x + glyph_width, size, 0.0],
-                [x, size, 0.0],
+                [x, offset_y, 0.0],
+                [x + glyph_width, offset_y, 0.0],
+                [x + glyph_width, offset_y + size, 0.0],
+                [x, offset_y + size, 0.0],
             ]);
             mesh.faces.extend([[base, base + 1, base + 2], [base, base + 2, base + 3]]);
         }
@@ -675,7 +688,8 @@ impl Primitive {
                 Mesh::cylinder(*h, *r1, *r2, seg, *center)
             }
             Primitive::Square { size, center } => Mesh::square(*size, *center),
-            Primitive::Text { text, size, .. } => Mesh::text(text, *size),
+            Primitive::Text { text, size, halign, valign, .. } =>
+                Mesh::text(text, *size, halign, valign),
             Primitive::Circle { r, fn_, fa, fs, .. } => {
                 let seg = Self::radial_segments(*r, *fn_, *fa, *fs);
                 Mesh::circle(*r, seg)
