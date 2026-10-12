@@ -160,6 +160,19 @@ mod tests {
     }
 
     #[test]
+    fn test_sibling_primitives_are_unioned() {
+        let parsed = Parser::parse("cube([1, 1, 1]); translate([2, 0, 0]) cube([1, 1, 1]);").unwrap();
+        let env = Rc::new(Environment::new());
+        let mut exec = Executor::new(env);
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        let min_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::INFINITY, f64::min);
+        let max_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::NEG_INFINITY, f64::max);
+        assert!((min_x - 0.0).abs() < 1e-9);
+        assert!((max_x - 3.0).abs() < 1e-9);
+    }
+
+    #[test]
     fn test_include_loads_relative_assignments() {
         let dir = unique_fixture_dir("include");
         fs::create_dir_all(&dir).unwrap();

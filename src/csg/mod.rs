@@ -201,7 +201,19 @@ impl Mesh {
         let m1 = Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
         let m2 = Self::mesh_to_manifold(other).unwrap_or_else(|_| Self::mesh_to_manifold_simple(other));
         let result = m1.union(&m2);
-        Self::manifold_to_mesh(&result)
+        let mesh = Self::manifold_to_mesh(&result);
+        if mesh.faces.is_empty() && !self.faces.is_empty() && !other.faces.is_empty() {
+            let mut combined = self.clone();
+            let offset = combined.vertices.len();
+            combined.vertices.extend_from_slice(&other.vertices);
+            combined.faces.extend(other.faces.iter().map(|face| {
+                [face[0] + offset, face[1] + offset, face[2] + offset]
+            }));
+            combined.normals.resize(combined.vertices.len(), [0.0, 0.0, 1.0]);
+            combined
+        } else {
+            mesh
+        }
     }
     
     pub fn difference(&self, other: &Mesh) -> Mesh {
@@ -331,9 +343,21 @@ impl CsgBuilder {
     pub fn new() -> Self {
         Self { root: None }
     }
+
+    pub fn from_node(root: CsgNode) -> Self {
+        Self { root: Some(root) }
+    }
     
     pub fn add_primitive(&mut self, prim: Primitive) -> &mut Self {
-        self.root = Some(CsgNode::Primitive(prim));
+        let node = CsgNode::Primitive(prim);
+        self.root = Some(match self.root.take() {
+            Some(existing) => CsgNode::Boolean {
+                op: BooleanOp::Union,
+                left: Box::new(existing),
+                right: Box::new(node),
+            },
+            None => node,
+        });
         self
     }
     
@@ -398,10 +422,13 @@ impl CsgBuilder {
     }
     
     pub fn union(&mut self, other: CsgNode) -> &mut Self {
-        self.root = self.root.take().map(|c| CsgNode::Boolean {
-            op: BooleanOp::Union,
-            left: Box::new(c),
-            right: Box::new(other),
+        self.root = Some(match self.root.take() {
+            Some(existing) => CsgNode::Boolean {
+                op: BooleanOp::Union,
+                left: Box::new(existing),
+                right: Box::new(other),
+            },
+            None => other,
         });
         self
     }

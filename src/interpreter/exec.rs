@@ -162,6 +162,27 @@ impl Executor {
             None => Ok(default),
         }
     }
+
+    fn get_vector3(&mut self, arguments: &[Assignment]) -> Result<Option<[f64; 3]>, String> {
+        let Some(argument) = arguments.iter().find(|argument| argument.name.is_empty()) else {
+            return Ok(None);
+        };
+        let Some(expression) = &argument.value else {
+            return Ok(None);
+        };
+        let value = self.eval_expr(expression)?;
+        let Value::Vector(values) = value else {
+            return Err("transformation vector must be a vector".into());
+        };
+        if values.len() != 3 {
+            return Err("transformation vector must contain three values".into());
+        }
+        Ok(Some([
+            values[0].as_number()?,
+            values[1].as_number()?,
+            values[2].as_number()?,
+        ]))
+    }
     
     fn exec_module_inst(
         &mut self,
@@ -324,79 +345,79 @@ impl Executor {
             }
             // Transformations - wrap children in new CSG context
             "translate" => {
-                let v = [
+                let v = self.get_vector3(arguments)?.unwrap_or([
                     self.get_arg(arguments, "x")?.unwrap_or(0.0),
                     self.get_arg(arguments, "y")?.unwrap_or(0.0),
                     self.get_arg(arguments, "z")?.unwrap_or(0.0),
-                ];
+                ]);
                 // Execute children in new CSG context
                 self.csg_stack.push(CsgBuilder::new());
                 for child in children {
                     self.execute(child)?;
                 }
                 if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
-                    let mut b = CsgBuilder::new();
-                    b.add_primitive(Primitive::Import { file: "".to_string(), convexity: 10 });
+                    let mut b = CsgBuilder::from_node(child_csg);
                     b.translate(v);
-                    b.union(child_csg);
-                    *self.current_builder() = b;
+                    if let Some(node) = b.build() {
+                        self.current_builder().union(node);
+                    }
                 }
                 Ok(Some(()))
             }
             "rotate" => {
-                let v = [
+                let v = self.get_vector3(arguments)?.unwrap_or([
                     self.get_arg(arguments, "x")?.unwrap_or(0.0),
                     self.get_arg(arguments, "y")?.unwrap_or(0.0),
                     self.get_arg(arguments, "z")?.unwrap_or(0.0),
-                ];
+                ]);
                 self.csg_stack.push(CsgBuilder::new());
                 for child in children {
                     self.execute(child)?;
                 }
                 if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
-                    let mut b = CsgBuilder::new();
-                    b.add_primitive(Primitive::Import { file: "".to_string(), convexity: 10 });
+                    let mut b = CsgBuilder::from_node(child_csg);
                     b.rotate(v);
-                    b.union(child_csg);
-                    *self.current_builder() = b;
+                    if let Some(node) = b.build() {
+                        self.current_builder().union(node);
+                    }
                 }
                 Ok(Some(()))
             }
             "scale" => {
-                let v = [
+                let v = self.get_vector3(arguments)?.unwrap_or([
                     self.get_arg(arguments, "x")?.unwrap_or(1.0),
                     self.get_arg(arguments, "y")?.unwrap_or(1.0),
                     self.get_arg(arguments, "z")?.unwrap_or(1.0),
-                ];
+                ]);
                 self.csg_stack.push(CsgBuilder::new());
                 for child in children {
                     self.execute(child)?;
                 }
                 if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
-                    let mut b = CsgBuilder::new();
-                    b.add_primitive(Primitive::Import { file: "".to_string(), convexity: 10 });
+                    let mut b = CsgBuilder::from_node(child_csg);
                     b.scale(v);
-                    b.union(child_csg);
-                    *self.current_builder() = b;
+                    if let Some(node) = b.build() {
+                        self.current_builder().union(node);
+                    }
                 }
                 Ok(Some(()))
             }
             "mirror" => {
-                let v = [
+                let v = self.get_vector3(arguments)?.unwrap_or([
                     self.get_arg(arguments, "x")?.unwrap_or(0.0),
                     self.get_arg(arguments, "y")?.unwrap_or(0.0),
                     self.get_arg(arguments, "z")?.unwrap_or(0.0),
-                ];
+                ]);
                 self.csg_stack.push(CsgBuilder::new());
                 for child in children {
                     self.execute(child)?;
                 }
                 if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
-                    let mut b = CsgBuilder::new();
-                    b.add_primitive(Primitive::Import { file: "".to_string(), convexity: 10 });
+                    let mut b = CsgBuilder::from_node(child_csg);
                     b.mirror(v);
-                    b.union(child_csg);
-                    *self.current_builder() = b;
+                    if let Some(node) = b.build() {
+                        self.current_builder().union(node);
+                    }
                 }
                 Ok(Some(()))
             }
