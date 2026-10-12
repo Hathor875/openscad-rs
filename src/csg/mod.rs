@@ -80,6 +80,63 @@ impl Mesh {
             normals: Vec::new(),
         }
     }
+
+    pub fn from_stl(data: &[u8]) -> Result<Self, String> {
+            let mut mesh = Mesh::new();
+            if data.len() >= 84 {
+                let count = u32::from_le_bytes(data[80..84].try_into().unwrap()) as usize;
+                if 84 + count.saturating_mul(50) == data.len() {
+                    for triangle in data[84..].chunks_exact(50) {
+                        let mut indices = [0; 3];
+                        for (index, vertex) in indices.iter_mut().enumerate() {
+                            let offset = 12 + index * 12;
+                            let point = [
+                                f32::from_le_bytes(triangle[offset..offset + 4].try_into().unwrap()) as f64,
+                                f32::from_le_bytes(triangle[offset + 4..offset + 8].try_into().unwrap()) as f64,
+                                f32::from_le_bytes(triangle[offset + 8..offset + 12].try_into().unwrap()) as f64,
+                            ];
+                            *vertex = Self::stl_vertex(&mut mesh.vertices, point);
+                        }
+                        mesh.faces.push(indices);
+                    }
+                    mesh.normals = vec![[0.0, 0.0, 1.0]; mesh.vertices.len()];
+                    return Ok(mesh);
+                }
+            }
+
+            let text = std::str::from_utf8(data)
+                .map_err(|_| "STL is neither valid binary nor UTF-8 ASCII".to_string())?;
+            let mut triangle = Vec::new();
+            for line in text.lines() {
+                let fields: Vec<_> = line.split_whitespace().collect();
+                if fields.len() == 4 && fields[0].eq_ignore_ascii_case("vertex") {
+                    let point = [
+                        fields[1].parse().map_err(|_| "invalid STL vertex")?,
+                        fields[2].parse().map_err(|_| "invalid STL vertex")?,
+                        fields[3].parse().map_err(|_| "invalid STL vertex")?,
+                    ];
+                    triangle.push(Self::stl_vertex(&mut mesh.vertices, point));
+                    if triangle.len() == 3 {
+                        mesh.faces.push([triangle[0], triangle[1], triangle[2]]);
+                        triangle.clear();
+                    }
+                }
+            }
+            if mesh.faces.is_empty() {
+                return Err("STL contains no triangles".into());
+            }
+            mesh.normals = vec![[0.0, 0.0, 1.0]; mesh.vertices.len()];
+            Ok(mesh)
+    }
+
+    fn stl_vertex(vertices: &mut Vec<[f64; 3]>, point: [f64; 3]) -> usize {
+            if let Some(index) = vertices.iter().position(|vertex| *vertex == point) {
+                index
+            } else {
+                vertices.push(point);
+                vertices.len() - 1
+        }
+    }
     
     pub fn cube(size: [f64; 3], center: bool) -> Self {
         let [sx, sy, sz] = size;

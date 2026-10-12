@@ -217,6 +217,33 @@ mod tests {
     }
 
     #[test]
+    fn test_imports_ascii_stl_relative_to_source() {
+        let dir = unique_fixture_dir("import");
+        fs::create_dir_all(&dir).unwrap();
+        let stl = dir.join("triangle.stl");
+        let main = dir.join("main.scad");
+        fs::write(&stl, "solid test\n\
+            facet normal 0 0 1\n\
+              outer loop\n\
+                vertex 0 0 0\n\
+                vertex 1 0 0\n\
+                vertex 0 1 0\n\
+              endloop\n\
+            endfacet\n\
+            endsolid test\n").unwrap();
+        fs::write(&main, "import(\"triangle.stl\");").unwrap();
+
+        let source = Parser::parse_file(&main).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&source).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.vertices.len(), 3);
+        assert_eq!(mesh.faces.len(), 1);
+
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn test_sibling_primitives_are_unioned() {
         let parsed = Parser::parse("cube([1, 1, 1]); translate([2, 0, 0]) cube([1, 1, 1]);").unwrap();
         let env = Rc::new(Environment::new());

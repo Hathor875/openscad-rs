@@ -146,6 +146,27 @@ impl Executor {
             None => Ok(None),
         }
     }
+
+    fn get_string(&mut self, arguments: &[Assignment], name: &str) -> Result<Option<String>, String> {
+        let Some(argument) = arguments.iter().find(|argument| {
+            argument.name == name || argument.name.strip_prefix('$') == Some(name)
+        }).or_else(|| {
+            if name == "file" {
+                arguments.iter().find(|argument| argument.name.is_empty())
+            } else {
+                None
+            }
+        }) else {
+            return Ok(None);
+        };
+        let Some(expression) = &argument.value else {
+            return Ok(None);
+        };
+        match self.eval_expr(expression)? {
+            Value::String(value) => Ok(Some(value)),
+            _ => Err(format!("{name} must be a string")),
+        }
+    }
     
     fn get_bool(&mut self, arguments: &[Assignment], name: &str, default: bool) -> Result<bool, String> {
         match arguments.iter().find(|a| {
@@ -507,6 +528,21 @@ impl Executor {
                     .ok_or_else(|| "polyhedron requires faces".to_string())
                     .and_then(|value| Self::value_faces(value, points.len()))?;
                 self.current_builder().add_primitive(Primitive::Polyhedron { points, faces });
+                Ok(Some(()))
+            }
+            "import" => {
+                let file = self.get_string(arguments, "file")?
+                    .ok_or_else(|| "import requires a file path".to_string())?;
+                let resolved = self.resolve_source_path(&file)?;
+                let data = std::fs::read(&resolved)
+                    .map_err(|error| format!("Failed to read '{}': {}", resolved.display(), error))?;
+                let imported = crate::csg::Mesh::from_stl(&data)
+                    .map_err(|error| format!("Failed to import '{}': {}", resolved.display(), error))?;
+                let faces = imported.faces.iter().map(|face| face.to_vec()).collect();
+                self.current_builder().add_primitive(Primitive::Polyhedron {
+                    points: imported.vertices,
+                    faces,
+                });
                 Ok(Some(()))
             }
             // Transformations - wrap children in new CSG context
