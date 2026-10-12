@@ -155,6 +155,43 @@ impl Mesh {
         mesh.normals = vec![[0.0, 0.0, 1.0]; mesh.vertices.len()];
         mesh
     }
+
+    pub fn square(size: [f64; 2], center: bool) -> Self {
+        let [sx, sy] = size;
+        let [ox, oy] = if center {
+            [-sx / 2.0, -sy / 2.0]
+        } else {
+            [0.0, 0.0]
+        };
+        Mesh {
+            vertices: vec![
+                [ox, oy, 0.0],
+                [ox + sx, oy, 0.0],
+                [ox + sx, oy + sy, 0.0],
+                [ox, oy + sy, 0.0],
+            ],
+            faces: vec![[0, 1, 2], [0, 2, 3]],
+            normals: vec![[0.0, 0.0, 1.0]; 4],
+        }
+    }
+
+    pub fn circle(radius: f64, segments: usize) -> Self {
+        let seg = segments.max(3);
+        let mut vertices = Vec::with_capacity(seg + 1);
+        vertices.push([0.0, 0.0, 0.0]);
+        for index in 0..seg {
+            let angle = 2.0 * std::f64::consts::PI * index as f64 / seg as f64;
+            vertices.push([radius * angle.cos(), radius * angle.sin(), 0.0]);
+        }
+        let faces = (0..seg)
+            .map(|index| [0, index + 1, (index + 1) % seg + 1])
+            .collect();
+        Mesh {
+            vertices,
+            faces,
+            normals: vec![[0.0, 0.0, 1.0]; seg + 1],
+        }
+    }
     
     pub fn cylinder(h: f64, r1: f64, r2: f64, segments: usize, center: bool) -> Self {
         let mut mesh = Mesh::new();
@@ -391,12 +428,10 @@ impl Primitive {
                 let seg = fn_.unwrap_or(16).max(3);
                 Mesh::cylinder(*h, *r1, *r2, seg, *center)
             }
-            Primitive::Square { size, center } => {
-                Mesh::cube([size[0], size[1], 0.001], *center)
-            }
+            Primitive::Square { size, center } => Mesh::square(*size, *center),
             Primitive::Circle { r, fn_, .. } => {
                 let seg = fn_.unwrap_or(16).max(3);
-                Mesh::sphere(*r, seg)
+                Mesh::circle(*r, seg)
             }
             Primitive::Polyhedron { points, faces } => {
                 let mut mesh = Mesh {

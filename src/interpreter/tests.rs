@@ -171,6 +171,35 @@ mod tests {
     }
 
     #[test]
+    fn test_2d_primitives_build_planar_meshes() {
+        let parsed = Parser::parse("square([2, 3], center = true);").unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.vertices.len(), 4);
+        assert_eq!(mesh.faces.len(), 2);
+        assert!(mesh.vertices.iter().all(|vertex| vertex[2] == 0.0));
+
+        let parsed = Parser::parse("circle(r = 2, $fn = 8);").unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.vertices.len(), 9);
+        assert_eq!(mesh.faces.len(), 8);
+        assert!(mesh.vertices.iter().all(|vertex| vertex[2] == 0.0));
+    }
+
+    #[test]
+    fn test_2d_primitives_can_be_extruded() {
+        let parsed = Parser::parse("linear_extrude(height = 2) circle(r = 1, $fn = 8);").unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.vertices.len(), 18);
+        assert_eq!(mesh.faces.len(), 32);
+    }
+
+    #[test]
     fn test_sibling_primitives_are_unioned() {
         let parsed = Parser::parse("cube([1, 1, 1]); translate([2, 0, 0]) cube([1, 1, 1]);").unwrap();
         let env = Rc::new(Environment::new());
