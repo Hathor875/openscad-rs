@@ -27,6 +27,17 @@ impl Evaluator {
     }
 
     pub fn eval(&mut self, expr: &Expression) -> Result<Value, String> {
+        match self.eval_inner(expr) {
+            Ok(value) => Ok(value),
+            Err(error) if is_tolerable(&error) => {
+                warn_evaluation(&error);
+                Ok(Value::Undef)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    fn eval_inner(&mut self, expr: &Expression) -> Result<Value, String> {
         // eprintln!("DEBUG eval: expr = {:?}", expr);
         match expr {
             Expression::Literal(lit, _span) => self.eval_literal(lit),
@@ -529,7 +540,12 @@ impl Evaluator {
                         let mut eval = Evaluator::with_depth(new_env_rc.clone(), self.depth + 1);
                         eval.eval(default_expr)?
                     } else {
-                        return Err(format!("Missing argument for parameter '{}'", param_name));
+                        // OpenSCAD binds unspecified parameters to undef instead of failing.
+                        warn_evaluation(&format!(
+                            "Missing argument for parameter '{}'",
+                            param_name
+                        ));
+                        Value::Undef
                     };
                     new_env_rc.define(param_name.clone(), value);
                 }
@@ -696,5 +712,27 @@ fn values_cmp(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
             Some(a.len().cmp(&b.len()))
         }
         _ => None,
+    }
+}
+/// Errors OpenSCAD reports as warnings (returning `undef`) instead of aborting.
+fn is_tolerable(error: &str) -> bool {
+    error.starts_with("Cannot convert")
+        || error.starts_with("Matrix dimensions mismatch")
+        || error.starts_with("Vector index out of bounds")
+        || error.starts_with("Undefined function")
+        || error.starts_with("len expects")
+        || error.starts_with("Expected ")
+}
+
+/// Emit a non-fatal evaluation warning, mirroring OpenSCAD's `WARNING:` output.
+/// The per-process budget keeps runaway loops from flooding stderr.
+pub(crate) fn warn_evaluation(message: &str) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static WARNINGS: AtomicUsize = AtomicUsize::new(0);
+    let count = WARNINGS.fetch_add(1, Ordering::Relaxed);
+    if count < 50 {
+        eprintln!("WARNING: {}", message);
+    } else if count == 50 {
+        eprintln!("WARNING: further warnings suppressed for this run");
     }
 }

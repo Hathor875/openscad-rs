@@ -21,7 +21,13 @@ impl Parser {
 
     pub fn parse_file(path: impl AsRef<Path>) -> Result<SourceFile> {
         let path = path.as_ref();
-        let input = fs::read_to_string(path)?;
+        let bytes = fs::read(path)?;
+        // Some libraries ship latin-1 encoded comments or strings; degrade to
+        // replacement characters instead of failing the whole load.
+        let input = match String::from_utf8(bytes) {
+            Ok(input) => input,
+            Err(error) => String::from_utf8_lossy(error.as_bytes()).into_owned(),
+        };
         Self::parse_with_path(&input, path.to_string_lossy().into_owned())
     }
 
@@ -244,7 +250,10 @@ impl Parser {
                 Rule::parameters => {
                     for param in inner.into_inner() {
                         if let Rule::parameter = param.as_rule() {
-                            params.push(Self::parse_parameter(param)?);
+                            let parsed = Self::parse_parameter(param)?;
+                            if !parsed.name.is_empty() {
+                                params.push(parsed);
+                            }
                         }
                     }
                 }
@@ -352,7 +361,10 @@ impl Parser {
                 Rule::parameters => {
                     for param in inner.into_inner() {
                         if let Rule::parameter = param.as_rule() {
-                            params.push(Self::parse_parameter(param)?);
+                            let parsed = Self::parse_parameter(param)?;
+                            if !parsed.name.is_empty() {
+                                params.push(parsed);
+                            }
                         }
                     }
                 }
@@ -666,7 +678,10 @@ impl Parser {
                 Rule::parameters => {
                     for parameter in inner.into_inner() {
                         if let Rule::parameter = parameter.as_rule() {
-                            params.push(Self::parse_parameter(parameter)?);
+                            let parsed = Self::parse_parameter(parameter)?;
+                            if !parsed.name.is_empty() {
+                                params.push(parsed);
+                            }
                         }
                     }
                 }

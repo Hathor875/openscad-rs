@@ -162,6 +162,22 @@ impl Executor {
         self.execute(stmt)
     }
 
+    /// Primitive validation failures that OpenSCAD logs without aborting the run.
+    fn is_geometry_error(error: &str) -> bool {
+        error.starts_with("polyhedron")
+            || error.starts_with("polygon")
+            || error.starts_with("each polyhedron")
+            || error.starts_with("each polygon")
+            || error.starts_with("transformation vector")
+            || error.starts_with("cube dimensions")
+            || error.starts_with("sphere radius")
+            || error.starts_with("circle radius")
+            || error.starts_with("cylinder requires")
+            || error.starts_with("$fn")
+            || error.starts_with("$fa")
+            || error.starts_with("$fs")
+    }
+
     fn contains_children_call(statements: &[Statement]) -> bool {
         statements.iter().any(|stmt| match stmt {
             Statement::ModuleInstantiation { name, children, .. } =>
@@ -221,20 +237,38 @@ impl Executor {
     }
 
     fn exec_source_directive(&mut self, path: &str, include_body: bool) -> Result<(), String> {
-        let resolved = self.resolve_source_path(path)?;
+        let resolved = match self.resolve_source_path(path) {
+            Ok(resolved) => resolved,
+            Err(_) => {
+                // OpenSCAD treats missing include/library files as a non-fatal warning.
+                let kind = if include_body { "include file" } else { "library" };
+                eprintln!("WARNING: Can't open {} '{}'.", kind, path);
+                return Ok(());
+            }
+        };
         let source = crate::parser::Parser::parse_file(&resolved)
             .map_err(|error| format!("Failed to load '{}': {}", resolved.display(), error))?;
 
         if include_body {
             self.execute_source(&source)
         } else {
-            for statement in &source.statements {
-                if matches!(statement, Statement::Include(_, _)) {
-                    self.execute(statement)?;
-                }
+            // A `use`d file is evaluated relative to its own location, so nested
+            // include/use directives inside it must resolve against its directory.
+            if !self.loading.insert(resolved.clone()) {
+                return Err(format!("Cyclic source include '{}'", resolved.display()));
             }
-            self.hoist_definitions(&source.statements)?;
-            Ok(())
+            self.source_stack.push(resolved.clone());
+            let result = (|| {
+                for statement in &source.statements {
+                    if matches!(statement, Statement::Include(_, _) | Statement::Use(_, _)) {
+                        self.execute(statement)?;
+                    }
+                }
+                self.hoist_definitions(&source.statements)
+            })();
+            self.source_stack.pop();
+            self.loading.remove(&resolved);
+            result
         }
     }
 
@@ -707,9 +741,114 @@ impl Executor {
             }
             return Ok(());
         }
-        // Handle built-in modules
-        if let Some(()) = self.exec_builtin_module(name, arguments, children)? {
+        if name == "let" {
+            // `let(bindings) children` as a statement: sequential bindings, then
+            // instantiate the children inside the resulting scope.
+            let let_env_rc = Rc::new(Environment::with_parent(self.env.clone()));
+            for argument in arguments {
+                if argument.name.is_empty() {
+                    continue;
+                }
+                let value = if let Some(expression) = &argument.value {
+                    let mut eval = Evaluator::with_depth(let_env_rc.clone(), self.depth + 1);
+                    eval.eval(expression)?
+                } else {
+                    Value::Undef
+                };
+                let_env_rc.define(argument.name.clone(), value);
+            }
+            let mut let_exec = Executor::with_depth(
+                let_env_rc,
+                self.source_stack.clone(),
+                self.loading.clone(),
+                self.depth + 1,
+            );
+            for child in children {
+                let_exec.execute(child)?;
+            }
+            if let Some(node) = let_exec.csg_stack.into_iter().next().and_then(|builder| builder.build())
+            {
+                self.current_builder().union(node);
+            }
             return Ok(());
+        }
+        if name == "intersection_for" {
+            let binding = arguments
+                .first()
+                .ok_or_else(|| "intersection_for requires a loop variable".to_string())?;
+            let variable = if binding.name.is_empty() {
+                return Err("intersection_for requires a named loop variable".into());
+            } else {
+                binding.name.clone()
+            };
+            let values = binding
+                .value
+                .as_ref()
+                .ok_or_else(|| "intersection_for requires an iterable expression".to_string())
+                .and_then(|expression| self.eval_expr(expression))?;
+            let values = match values {
+                Value::Vector(values) => values,
+                value => vec![value],
+            };
+            let mut accumulated: Option<CsgBuilder> = None;
+            for value in values {
+                let loop_env = Environment::with_parent(self.env.clone());
+                loop_env.define(variable.clone(), value);
+                let mut loop_exec = Executor::with_depth(
+                    Rc::new(loop_env),
+                    self.source_stack.clone(),
+                    self.loading.clone(),
+                    self.depth + 1,
+                );
+                for child in children {
+                    loop_exec.execute(child)?;
+                }
+                if let Some(node) = loop_exec
+                    .csg_stack
+                    .into_iter()
+                    .next()
+                    .and_then(|builder| builder.build())
+                {
+                    if let Some(builder) = accumulated.as_mut() {
+                        builder.intersection(node);
+                    } else {
+                        accumulated = Some(CsgBuilder::from_node(node));
+                    }
+                }
+            }
+            if let Some(result) = accumulated.and_then(|builder| builder.build()) {
+                self.current_builder().union(result);
+            }
+            return Ok(());
+        }
+        if name == "assert" || name == "echo" {
+            // Both may appear as statements with children; instantiate them when
+            // the assertion passes (echo never fails). OpenSCAD logs a failed
+            // assertion without aborting the rest of the model.
+            match self.exec_builtin_module(name, arguments, children) {
+                Ok(()) => {
+                    for child in children {
+                        self.execute(child)?;
+                    }
+                }
+                Err(error) => {
+                    crate::interpreter::eval::warn_evaluation(&error);
+                }
+            }
+            return Ok(());
+        }
+        // Handle built-in modules
+        match self.exec_builtin_module(name, arguments, children) {
+            Ok(result) => {
+                if let Some(()) = result {
+                    return Ok(());
+                }
+            }
+            Err(error) => {
+                // OpenSCAD reports bad primitive arguments as errors but keeps going.
+                crate::interpreter::eval::warn_evaluation(&error);
+                return Ok(());
+            }
         }
         
         // Handle user-defined modules
@@ -720,7 +859,17 @@ impl Executor {
                 None
             }
         });
-        let module = module_opt.ok_or_else(|| format!("Undefined module '{}'", name))?;
+        let module = match module_opt {
+            Some(module) => module,
+            None => {
+                // OpenSCAD only warns about unknown modules and skips them.
+                crate::interpreter::eval::warn_evaluation(&format!(
+                    "Ignoring unknown module '{}'",
+                    name
+                ));
+                return Ok(());
+            }
+        };
 
         let new_env = Environment::with_parent(self.env.clone());
         let new_env_rc = Rc::new(new_env);
@@ -740,7 +889,12 @@ impl Executor {
                 let mut eval = Evaluator::with_depth(new_env_rc.clone(), self.depth + 1);
                 eval.eval(default_expr)?
             } else {
-                return Err(format!("Missing argument for parameter '{}'", param_name));
+                // OpenSCAD binds unspecified parameters to undef instead of failing.
+                crate::interpreter::eval::warn_evaluation(&format!(
+                    "Missing argument for parameter '{}'",
+                    param_name
+                ));
+                Value::Undef
             };
             new_env_rc.define(param_name.clone(), value);
         }

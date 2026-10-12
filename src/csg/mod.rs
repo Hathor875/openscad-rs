@@ -2,6 +2,7 @@
 // Uses nalgebra for math, outputs to OBJ/STL
 
 use nalgebra::Matrix4;
+use manifold3d::Manifold;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BooleanOp {
@@ -540,33 +541,147 @@ impl Mesh {
     }
     
     pub fn union(&self, other: &Mesh) -> Mesh {
-        let mut combined = self.clone();
-        let offset = combined.vertices.len();
-        combined.vertices.extend_from_slice(&other.vertices);
-        combined.faces.extend(other.faces.iter().map(|face| {
-            [face[0] + offset, face[1] + offset, face[2] + offset]
-        }));
-        combined.normals.resize(combined.vertices.len(), [0.0, 0.0, 1.0]);
-        combined
+        if self.faces.is_empty() {
+            return other.clone();
+        }
+        if other.faces.is_empty() {
+            return self.clone();
+        }
+        // Disjoint operands can be merged without a boolean evaluation.
+        if Self::bounds_disjoint(self, other) {
+            return Self::concatenate(self, other);
+        }
+        let m1 = Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
+        let m2 = Self::mesh_to_manifold(other).unwrap_or_else(|_| Self::mesh_to_manifold_simple(other));
+        let mesh = Self::manifold_to_mesh(&m1.union(&m2));
+        if mesh.faces.is_empty() {
+            Self::concatenate(self, other)
+        } else {
+            mesh
+        }
     }
-    
+
     pub fn difference(&self, other: &Mesh) -> Mesh {
-        // Simple difference: subtract other from self by removing overlapping faces
-        // This is a placeholder - real boolean would use CSG
-        let mut combined = self.clone();
+        if self.faces.is_empty() {
+            return Mesh::new();
+        }
+        if other.faces.is_empty() {
+            return self.clone();
+        }
+        let m1 = Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
+        let m2 = Self::mesh_to_manifold(other).unwrap_or_else(|_| Self::mesh_to_manifold_simple(other));
+        let mesh = Self::manifold_to_mesh(&m1.difference(&m2));
+        if mesh.faces.is_empty() {
+            // An empty result is only plausible when `other` fully encloses `self`;
+            // otherwise the boolean failed on a non-manifold input and we keep self.
+            if Self::contains(other, self) {
+                Mesh::new()
+            } else {
+                self.clone()
+            }
+        } else {
+            mesh
+        }
+    }
+
+    pub fn intersection(&self, other: &Mesh) -> Mesh {
+        if self.faces.is_empty() || other.faces.is_empty() {
+            return Mesh::new();
+        }
+        let m1 = Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
+        let m2 = Self::mesh_to_manifold(other).unwrap_or_else(|_| Self::mesh_to_manifold_simple(other));
+        Self::manifold_to_mesh(&m1.intersection(&m2))
+    }
+
+    fn concatenate(left: &Mesh, right: &Mesh) -> Mesh {
+        let mut combined = left.clone();
         let offset = combined.vertices.len();
-        combined.vertices.extend_from_slice(&other.vertices);
-        combined.faces.extend(other.faces.iter().map(|face| {
+        combined.vertices.extend_from_slice(&right.vertices);
+        combined.faces.extend(right.faces.iter().map(|face| {
             [face[0] + offset, face[1] + offset, face[2] + offset]
         }));
         combined.normals.resize(combined.vertices.len(), [0.0, 0.0, 1.0]);
         combined
     }
-    
-    pub fn intersection(&self, other: &Mesh) -> Mesh {
-        // Simple intersection placeholder - return empty mesh
-        // Real boolean would use CSG
-        Mesh::new()
+
+    fn bounds(mesh: &Mesh) -> ([f64; 3], [f64; 3]) {
+        let mut min = [f64::INFINITY; 3];
+        let mut max = [f64::NEG_INFINITY; 3];
+        for vertex in &mesh.vertices {
+            for axis in 0..3 {
+                min[axis] = min[axis].min(vertex[axis]);
+                max[axis] = max[axis].max(vertex[axis]);
+            }
+        }
+        (min, max)
+    }
+
+    fn bounds_disjoint(left: &Mesh, right: &Mesh) -> bool {
+        let (left_min, left_max) = Self::bounds(left);
+        let (right_min, right_max) = Self::bounds(right);
+        (0..3).any(|axis| {
+            left_max[axis] < right_min[axis] - f64::EPSILON
+                || right_max[axis] < left_min[axis] - f64::EPSILON
+        })
+    }
+
+    fn contains(outer: &Mesh, inner: &Mesh) -> bool {
+        let (outer_min, outer_max) = Self::bounds(outer);
+        let (inner_min, inner_max) = Self::bounds(inner);
+        (0..3).all(|axis| {
+            inner_min[axis] >= outer_min[axis] - f64::EPSILON
+                && inner_max[axis] <= outer_max[axis] + f64::EPSILON
+        })
+    }
+
+    pub fn manifold_to_mesh(m: &Manifold) -> Mesh {
+        let (verts, n_props, tri_indices) = m.to_mesh_f64();
+        let mut vertices = Vec::new();
+        for i in 0..(verts.len() / n_props) {
+            let base = i * n_props;
+            if n_props >= 3 {
+                vertices.push([verts[base], verts[base + 1], verts[base + 2]]);
+            } else {
+                vertices.push([verts[base], 0.0, 0.0]);
+            }
+        }
+        let mut faces = Vec::new();
+        for i in 0..(tri_indices.len() / 3) {
+            let base = i * 3;
+            faces.push([
+                tri_indices[base] as usize,
+                tri_indices[base + 1] as usize,
+                tri_indices[base + 2] as usize,
+            ]);
+        }
+        let normals = vec![[0.0, 0.0, 1.0]; vertices.len()];
+        Mesh {
+            vertices,
+            faces,
+            normals,
+        }
+    }
+
+    fn mesh_to_manifold(m: &Mesh) -> Result<Manifold, manifold3d::CsgError> {
+        if m.faces.is_empty() || m.vertices.is_empty() {
+            return Manifold::from_mesh_f64(&[], 3, &[]);
+        }
+        let mut vert_props = Vec::with_capacity(m.vertices.len() * 3);
+        for v in &m.vertices {
+            vert_props.extend_from_slice(&[v[0], v[1], v[2]]);
+        }
+        let mut tri_indices: Vec<u64> = Vec::with_capacity(m.faces.len() * 3);
+        for f in &m.faces {
+            if !m.valid_face(f) {
+                continue;
+            }
+            tri_indices.extend_from_slice(&[f[0] as u64, f[1] as u64, f[2] as u64]);
+        }
+        Manifold::from_mesh_f64(&vert_props, 3, &tri_indices)
+    }
+
+    fn mesh_to_manifold_simple(m: &Mesh) -> Manifold {
+        Self::mesh_to_manifold(m).unwrap_or_else(|_| Manifold::empty())
     }
     
     pub fn to_obj(&self) -> String {

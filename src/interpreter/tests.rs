@@ -267,9 +267,24 @@ mod tests {
             "circle(r = 1, $fn = 2);",
             "cylinder(h = 1, r = 1, $fs = 0);",
         ] {
+            // OpenSCAD reports bad primitive arguments as warnings and keeps
+            // going, so the invalid input must not abort the run nor emit
+            // geometry of its own.
             let parsed = Parser::parse(input).unwrap();
             let mut exec = Executor::new(Rc::new(Environment::new()));
-            assert!(exec.execute_source(&parsed).is_err(), "accepted invalid input: {input}");
+            exec.execute_source(&parsed).unwrap();
+            if let Some(mesh) = exec.build_mesh() {
+                assert!(mesh.faces.is_empty(), "invalid input produced geometry: {input}");
+            }
+
+            // The run continues: a valid primitive after it still renders.
+            let parsed = Parser::parse(&format!("{input} cube(2);")).unwrap();
+            let mut exec = Executor::new(Rc::new(Environment::new()));
+            exec.execute_source(&parsed).unwrap();
+            let mesh = exec
+                .build_mesh()
+                .unwrap_or_else(|| panic!("valid primitive after {input} produced no mesh"));
+            assert!(!mesh.faces.is_empty(), "run aborted after invalid input: {input}");
         }
     }
 
@@ -498,8 +513,19 @@ mod tests {
             "polygon(points = [[0,0], [4,0], [4,4], [0,4], [5,5], [6,5], [6,6], [5,6]], paths = [[0,1,2,3], [4,5,6,7]]);",
         ).unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));
-        let error = exec.execute_source(&parsed).unwrap_err();
-        assert!(error.contains("inside the outer path"));
+        // OpenSCAD logs the problem and keeps going without that polygon.
+        exec.execute_source(&parsed).unwrap();
+        if let Some(mesh) = exec.build_mesh() {
+            assert!(mesh.faces.is_empty());
+        }
+
+        // The run continues: a valid primitive after it still renders.
+        let parsed = Parser::parse(
+            "polygon(points = [[0,0], [4,0], [4,4], [0,4], [5,5], [6,5], [6,6], [5,6]], paths = [[0,1,2,3], [4,5,6,7]]); cube(2);",
+        ).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        assert!(exec.build_mesh().map(|mesh| !mesh.faces.is_empty()).unwrap_or(false));
     }
 
     #[test]
@@ -508,15 +534,19 @@ mod tests {
             "polygon(points = [[0,0], [4,4], [0,3], [3,0]]);",
         ).unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));
-        let error = exec.execute_source(&parsed).unwrap_err();
-        assert!(error.contains("self-intersect"));
+        exec.execute_source(&parsed).unwrap();
+        if let Some(mesh) = exec.build_mesh() {
+            assert!(mesh.faces.is_empty());
+        }
 
         let parsed = Parser::parse(
             "polygon(points = [[0,0], [1,0], [2,0]]);",
         ).unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));
-        let error = exec.execute_source(&parsed).unwrap_err();
-        assert!(error.contains("non-zero area"));
+        exec.execute_source(&parsed).unwrap();
+        if let Some(mesh) = exec.build_mesh() {
+            assert!(mesh.faces.is_empty());
+        }
     }
 
     #[test]

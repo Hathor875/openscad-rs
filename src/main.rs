@@ -2,108 +2,702 @@ use eframe::egui;
 use eframe::Frame;
 use openscad_rust::{Parser, Executor, Environment};
 use std::rc::Rc;
+use std::sync::mpsc::{self, Receiver};
+
+
+#[derive(Clone, Debug)]
+struct MeshData {
+    vertices: Vec<[f32; 3]>,
+    indices: Vec<u32>,
+}
+
+enum EvalResult {
+    Log(String),
+    Mesh(MeshData, [f32; 3], f32),
+}
+
+#[derive(Clone, Copy)]
+struct Camera {
+    yaw: f32,
+    pitch: f32,
+    distance: f32,
+    target: [f32; 3],
+}
+
+impl Default for Camera {
+    fn default() -> Self {
+        Self { yaw: 0.8, pitch: 0.4, distance: 40.0, target: [0.0, 0.0, 0.0] }
+    }
+}
 
 struct OpenScadApp {
     source: String,
-    errors: Vec<String>,
-    model_mesh: Option<Vec<u8>>,
+    console: Vec<String>,
+    model_stl: Option<Vec<u8>>,
+    current_file: Option<String>,
+    dirty: bool,
+    evaluating: bool,
+    scroll_to_bottom: bool,
+    rx: Option<Receiver<EvalResult>>,
+    mesh: Option<MeshData>,
+    camera: Camera,
+    dragging: bool,
+    last_pointer_pos: Option<egui::Pos2>,
 }
 
 impl OpenScadApp {
     fn new(_cc: &eframe::CreationContext<'_>) -> Self {
+        let demo_source = "// OpenSCAD Rust GUI\n// Write your code here and press Run\n\ncube([10, 10, 10]);\ntranslate([15, 0, 0])\n    sphere(r=5);\n".to_string();
         Self {
-            source: String::new(),
-            errors: Vec::new(),
-            model_mesh: None,
+            source: demo_source,
+            console: vec!["OpenSCAD Rust GUI ready.".to_string()],
+            model_stl: None,
+            current_file: None,
+            dirty: true,
+            evaluating: false,
+            scroll_to_bottom: false,
+            rx: None,
+            mesh: None,
+            camera: Camera::default(),
+            dragging: false,
+            last_pointer_pos: None,
         }
     }
 
-    fn load_file(&mut self, path: &str) {
-        self.source = match std::fs::read_to_string(path) {
-            Ok(content) => content,
-            Err(e) => {
-                self.errors.push(format!("Failed to read file: {e}"));
-                return;
+    fn open_file(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("OpenSCAD", &["scad"])
+            .pick_file()
+        {
+            match std::fs::read_to_string(&path) {
+                Ok(content) => {
+                    self.source = content;
+                    self.current_file = Some(path.display().to_string());
+                    self.dirty = true;
+                    self.console.push(format!("Opened: {}", path.display()));
+                }
+                Err(e) => {
+                    self.console.push(format!("Error reading file: {e}"));
+                }
             }
-        };
-        self.errors.clear();
-        self.model_mesh = None;
-        self.parse_and_eval();
+        }
     }
 
-    fn parse_and_eval(&mut self) {
-        match Parser::parse_file(&self.source) {
-            Ok(parsed) => {
-                let env = Rc::new(Environment::new());
-                let mut exec = Executor::new(env);
-                match exec.execute_source(&parsed) {
-                    Ok(()) => {
-                        let mesh = exec.build_mesh();
-                        self.errors.clear();
-                        if let Some(mesh) = mesh {
-                            if !mesh.is_empty() {
-                                self.model_mesh = Some(mesh.to_stl().into_bytes());
+    fn save_file(&mut self) {
+        let path = if let Some(ref p) = self.current_file {
+            Some(p.clone())
+        } else {
+            rfd::FileDialog::new()
+                .add_filter("OpenSCAD", &["scad"])
+                .save_file()
+                .map(|p| p.display().to_string())
+        };
+
+        if let Some(p) = path {
+            match std::fs::write(&p, &self.source) {
+                Ok(()) => {
+                    self.current_file = Some(p.clone());
+                    self.dirty = false;
+                    self.console.push(format!("Saved: {p}"));
+                }
+                Err(e) => {
+                    self.console.push(format!("Error saving file: {e}"));
+                }
+            }
+        }
+    }
+
+    fn evaluate(&mut self) {
+        self.evaluating = true;
+        self.console.clear();
+        self.model_stl = None;
+        self.mesh = None;
+
+        let (tx, rx) = mpsc::channel();
+        let source = self.source.clone();
+
+        std::thread::spawn(move || {
+            let _ = tx.send(EvalResult::Log("Evaluating...".to_string()));
+
+            let parsed = match Parser::parse(&source) {
+                Ok(p) => p,
+                Err(e) => {
+                    let _ = tx.send(EvalResult::Log(format!("Parse error: {e}")));
+                    let _ = tx.send(EvalResult::Log("DONE".to_string()));
+                    return;
+                }
+            };
+
+            let _ = tx.send(EvalResult::Log("Parsed OK, evaluating...".to_string()));
+
+            let env = Rc::new(Environment::new());
+            let mut exec = Executor::new(env);
+
+            match exec.execute_source(&parsed) {
+                Ok(()) => {
+                    let _ = tx.send(EvalResult::Log("Evaluation complete.".to_string()));
+                    let mesh = exec.build_mesh();
+                    if let Some(mesh) = mesh {
+                        let stl = mesh.to_stl();
+                        let vertices: Vec<[f32; 3]> = mesh.vertices.iter()
+                            .map(|v| [v[0] as f32, v[1] as f32, v[2] as f32])
+                            .collect();
+                        let mut indices: Vec<u32> = Vec::new();
+                        for face in &mesh.faces {
+                            if face[0] != face[1] && face[1] != face[2] && face[0] != face[2] {
+                                indices.push(face[0] as u32);
+                                indices.push(face[1] as u32);
+                                indices.push(face[2] as u32);
                             }
                         }
+
+                        let mut bounds_min = [f32::INFINITY; 3];
+                        let mut bounds_max = [f32::NEG_INFINITY; 3];
+                        for v in &vertices {
+                            for i in 0..3 {
+                                bounds_min[i] = bounds_min[i].min(v[i]);
+                                bounds_max[i] = bounds_max[i].max(v[i]);
+                            }
+                        }
+                        let center = [
+                            (bounds_min[0] + bounds_max[0]) / 2.0,
+                            (bounds_min[1] + bounds_max[1]) / 2.0,
+                            (bounds_min[2] + bounds_max[2]) / 2.0,
+                        ];
+                        let extent = (bounds_max[0] - bounds_min[0])
+                            .max(bounds_max[1] - bounds_min[1])
+                            .max(bounds_max[2] - bounds_min[2]);
+                        let distance = (extent * 2.5).max(5.0);
+
+                        let vertex_count = vertices.len();
+                        let face_count = mesh.faces.len();
+                        let _ = tx.send(EvalResult::Log(
+                            format!("Mesh: {vertex_count} vertices, {face_count} faces")
+                        ));
+                        let _ = tx.send(EvalResult::Log(format!(
+                            "Bounds: [{:.2}, {:.2}, {:.2}] to [{:.2}, {:.2}, {:.2}]",
+                            bounds_min[0] as f64, bounds_min[1] as f64, bounds_min[2] as f64,
+                            bounds_max[0] as f64, bounds_max[1] as f64, bounds_max[2] as f64
+                        )));
+                        let _ = tx.send(EvalResult::Log(format!("STL size: {} bytes", stl.len())));
+
+                        let mesh_data = MeshData { vertices, indices };
+                        let _ = tx.send(EvalResult::Mesh(mesh_data, center, distance));
+                        let _ = tx.send(EvalResult::Log("DONE".to_string()));
+                    } else {
+                        let _ = tx.send(EvalResult::Log("No geometry generated.".to_string()));
+                        let _ = tx.send(EvalResult::Log("DONE".to_string()));
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(EvalResult::Log(format!("Evaluation error: {e}")));
+                    let _ = tx.send(EvalResult::Log("DONE".to_string()));
+                }
+            }
+        });
+
+        self.rx = Some(rx);
+    }
+
+    fn export_stl(&mut self) {
+        if let Some(ref data) = self.model_stl {
+            if let Some(path) = rfd::FileDialog::new()
+                .add_filter("STL", &["stl"])
+                .set_file_name("model.stl")
+                .save_file()
+            {
+                match std::fs::write(&path, data) {
+                    Ok(()) => {
+                        self.console.push(format!("Exported STL: {}", path.display()));
                     }
                     Err(e) => {
-                        self.errors.push(format!("Evaluation error: {e}"));
+                        self.console.push(format!("Error exporting STL: {e}"));
                     }
                 }
             }
-            Err(e) => {
-                self.errors.push(format!("Parse error: {e}"));
-            }
+        } else {
+            self.console.push("No model to export. Run evaluation first.".to_string());
         }
     }
 }
 
 impl eframe::App for OpenScadApp {
-    fn update(&mut self, ctx: &egui::Context, frame: &mut Frame) {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut Frame) {
+        if let Some(ref rx) = self.rx {
+            while let Ok(result) = rx.try_recv() {
+                match result {
+                    EvalResult::Log(msg) => {
+                        self.console.push(msg.clone());
+                        if msg == "DONE" {
+                            self.evaluating = false;
+                        }
+                    }
+                    EvalResult::Mesh(mesh, center, distance) => {
+                        eprintln!("GUI: received mesh with {} vertices, {} indices", mesh.vertices.len(), mesh.indices.len());
+                        self.mesh = Some(mesh);
+                        self.camera.target = center;
+                        self.camera.distance = distance;
+                    }
+                }
+                self.scroll_to_bottom = true;
+            }
+        }
+
+        if self.dirty && !self.evaluating {
+            self.dirty = false;
+            self.evaluate();
+        }
+
         egui::TopBottomPanel::top("menu").show(ctx, |ui| {
             egui::menu::bar(ui, |ui| {
-                if ui.button("Open").clicked() {}
-                ui.separator();
-                if ui.button("Run").clicked() {
-                    self.parse_and_eval();
+                if ui.button("Open").clicked() {
+                    self.open_file();
+                }
+                if ui.button("Save").clicked() {
+                    self.save_file();
                 }
                 ui.separator();
-                if ui.button("Export STL").clicked() {}
+                if ui.button("Run").clicked() {
+                    self.evaluate();
+                }
+                if ui.button("Export STL").clicked() {
+                    self.export_stl();
+                }
                 ui.separator();
-                if ui.button("Clear").clicked() {
-                    self.errors.clear();
-                    self.model_mesh = None;
+                if ui.button("Clear Console").clicked() {
+                    self.console.clear();
                 }
             });
         });
 
-        egui::SidePanel::left("side").show(ctx, |ui| {
+        egui::SidePanel::left("file_panel").default_width(200.0).show(ctx, |ui| {
             ui.heading("OpenSCAD Rust");
-            ui.label("Rust-based OpenSCAD interpreter");
+            ui.separator();
+            if let Some(ref path) = self.current_file {
+                ui.label(format!("File: {}", path));
+            } else {
+                ui.label("File: <untitled>");
+            }
+            ui.separator();
+            if self.evaluating {
+                ui.colored_label(egui::Color32::YELLOW, "Evaluating...");
+            }
+            if let Some(ref mesh) = self.mesh {
+                ui.separator();
+                ui.heading("Mesh Info");
+                ui.label(format!("Vertices: {}", mesh.vertices.len()));
+                ui.label(format!("Triangles: {}", mesh.indices.len() / 3));
+            }
+            ui.separator();
+            ui.collapsing("Camera", |ui| {
+                ui.label(format!("Distance: {:.1}", self.camera.distance));
+                ui.label(format!("Yaw: {:.2}", self.camera.yaw));
+                ui.label(format!("Pitch: {:.2}", self.camera.pitch));
+            });
+        });
+
+        egui::TopBottomPanel::bottom("console").default_height(150.0).show(ctx, |ui| {
+            ui.heading("Console");
+            egui::ScrollArea::new([true, true]).show(ui, |ui| {
+                for line in &self.console {
+                    let color = if line.contains("Error") || line.contains("error") {
+                        egui::Color32::RED
+                    } else if line == "DONE" {
+                        egui::Color32::GREEN
+                    } else {
+                        egui::Color32::GRAY
+                    };
+                    ui.colored_label(color, line);
+                }
+                if self.scroll_to_bottom {
+                    ui.scroll_to_cursor(Some(egui::Align::Max));
+                    self.scroll_to_bottom = false;
+                }
+            });
         });
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                if ui.button("Parse").clicked() {
-                    self.parse_and_eval();
+            let avail = ui.available_rect_before_wrap();
+            let editor_width = avail.width() * 0.5;
+
+            let editor_rect = egui::Rect::from_min_size(
+                avail.min,
+                egui::vec2(editor_width, avail.height()),
+            );
+            let viewport_rect = egui::Rect::from_min_size(
+                egui::pos2(avail.min.x + editor_width, avail.min.y),
+                egui::vec2(avail.width() - editor_width, avail.height()),
+            );
+
+            ui.allocate_ui_at_rect(editor_rect, |ui| {
+                ui.heading("Editor");
+                egui::ScrollArea::new([false, true]).show(ui, |ui| {
+                    ui.add(
+                        egui::TextEdit::multiline(&mut self.source)
+                            .code_editor()
+                            .desired_rows(25)
+                            .desired_width(f32::INFINITY)
+                            .font(egui::TextStyle::Monospace),
+                    );
+                });
+            });
+
+            ui.allocate_ui_at_rect(viewport_rect, |ui| {
+                ui.heading("3D Viewport");
+
+                let (response, painter) = ui.allocate_painter(
+                    egui::vec2(viewport_rect.width(), viewport_rect.height()),
+                    egui::Sense::drag(),
+                );
+
+                if let Some(ref mesh) = self.mesh {
+                    render_mesh_2d(&painter, mesh, self.camera, response.rect);
+                } else {
+                    painter.text(
+                        viewport_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        "Press Run to evaluate",
+                        egui::FontId::proportional(16.0),
+                        egui::Color32::GRAY,
+                    );
                 }
-                if ui.button("Run").clicked() {
-                    self.parse_and_eval();
+
+                if response.drag_started() {
+                    self.dragging = true;
+                }
+                if response.drag_released() {
+                    self.dragging = false;
+                    self.last_pointer_pos = None;
+                }
+                if self.dragging {
+                    if let Some(current_pos) = response.hover_pos() {
+                        if let Some(last_pos) = self.last_pointer_pos {
+                            let delta = current_pos - last_pos;
+                            self.camera.yaw += delta.x * 0.01;
+                            self.camera.pitch = (self.camera.pitch + delta.y * 0.01)
+                                .clamp(-1.5, 1.5);
+                        }
+                        self.last_pointer_pos = Some(current_pos);
+                    }
+                }
+                if let Some(_hover) = response.hover_pos() {
+                    let scroll = ui.input(|i| i.scroll_delta.y);
+                    if scroll != 0.0 {
+                        self.camera.distance *= 1.0 - scroll * 0.01;
+                        self.camera.distance = self.camera.distance.clamp(1.0, 500.0);
+                    }
                 }
             });
-            ui.separator();
-            ui.label("SCAD Source Area");
-            if !self.errors.is_empty() {
-                ui.colored_label(egui::Color32::RED, "Errors:");
-                for err in &self.errors {
-                    ui.label(err);
-                }
-            }
-            if self.model_mesh.is_some() {
-                ui.label("Model generated successfully!");
-            }
         });
     }
+}
+
+fn render_mesh_2d(painter: &egui::Painter, mesh: &MeshData, camera: Camera, rect: egui::Rect) {
+    if mesh.vertices.len() < 3 || mesh.indices.len() < 3 {
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "No geometry to display",
+            egui::FontId::proportional(16.0),
+            egui::Color32::GRAY,
+        );
+        return;
+    }
+
+    let indices: Vec<[u32; 3]> = mesh.indices.chunks_exact(3)
+        .map(|c| [c[0], c[1], c[2]])
+        .collect();
+
+    let mut normals = vec![[0.0f32; 3]; mesh.vertices.len()];
+    for tri in &indices {
+        let a = mesh.vertices[tri[0] as usize];
+        let b = mesh.vertices[tri[1] as usize];
+        let c = mesh.vertices[tri[2] as usize];
+        let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [
+            ab[1] * ac[2] - ab[2] * ac[1],
+            ab[2] * ac[0] - ab[0] * ac[2],
+            ab[0] * ac[1] - ab[1] * ac[0],
+        ];
+        for &i in tri {
+            normals[i as usize][0] += n[0];
+            normals[i as usize][1] += n[1];
+            normals[i as usize][2] += n[2];
+        }
+    }
+    for n in &mut normals {
+        let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        if len > 0.0 {
+            n[0] /= len;
+            n[1] /= len;
+            n[2] /= len;
+        }
+    }
+
+    let eye = [
+        camera.target[0] + camera.distance * camera.yaw.cos() * camera.pitch.cos(),
+        camera.target[1] + camera.distance * camera.pitch.sin(),
+        camera.target[2] + camera.distance * camera.yaw.sin() * camera.pitch.cos(),
+    ];
+
+    let aspect = if rect.width() > 0.0 && rect.height() > 0.0 {
+        rect.width() / rect.height()
+    } else {
+        1.0
+    };
+    let (proj, view) = build_matrices(eye, camera.target, aspect, camera.distance);
+    let light_dir = normalize([0.5, 1.0, 0.8]);
+
+    painter.rect_filled(rect, 0.0, egui::Color32::from_rgb(40, 44, 52));
+
+    let project = |p: [f32; 3]| -> Option<egui::Pos2> {
+        let clip = mat4_mul_vec4(proj, mat4_mul_vec4(view, [p[0], p[1], p[2], 1.0f32]));
+        if clip[3] < 0.001 {
+            return None;
+        }
+        let ndc_x = clip[0] / clip[3];
+        let ndc_y = clip[1] / clip[3];
+        Some(egui::pos2(
+            rect.left() + (ndc_x * 0.5 + 0.5) * rect.width(),
+            rect.top() + (1.0 - (ndc_y * 0.5 + 0.5)) * rect.height(),
+        ))
+    };
+
+    let draw_line = |a: [f32; 3], b: [f32; 3], color: egui::Color32, width: f32| {
+        if let (Some(pa), Some(pb)) = (project(a), project(b)) {
+            let bounds = egui::Rect::from_min_max(
+                egui::pos2(pa.x.min(pb.x), pa.y.min(pb.y)),
+                egui::pos2(pa.x.max(pb.x), pa.y.max(pb.y)),
+            );
+            if rect.intersects(bounds) && (pa - pb).length_sq() > 0.25 {
+                painter.line_segment([pa, pb], egui::Stroke::new(width, color));
+            }
+        }
+    };
+
+    let mut step = 1.0f32;
+    while camera.distance / step > 40.0 {
+        step *= match step as i32 {
+            1 => 5.0,
+            _ => 2.0,
+        };
+    }
+    let extent = step * 16.0;
+
+    let minor = egui::Color32::from_gray(58);
+    let mut k = -extent;
+    while k <= extent + 0.001 {
+        let c = k;
+        if c.abs() > 0.001 {
+            draw_line([-extent, c, 0.0], [extent, c, 0.0], minor, 1.0);
+            draw_line([c, -extent, 0.0], [c, extent, 0.0], minor, 1.0);
+        }
+        k += step;
+    }
+    draw_line([-extent, 0.0, 0.0], [extent, 0.0, 0.0], egui::Color32::from_rgb(220, 80, 80), 1.5);
+    draw_line([0.0, -extent, 0.0], [0.0, extent, 0.0], egui::Color32::from_rgb(80, 200, 80), 1.5);
+    draw_line([0.0, 0.0, 0.0], [0.0, 0.0, extent], egui::Color32::from_rgb(90, 140, 240), 1.5);
+
+    let tick = step * 0.25;
+    let font = egui::FontId::monospace(11.0);
+    let mut label_k = -extent;
+    while label_k <= extent + 0.001 {
+        let c = label_k;
+        if c.abs() > 0.001 {
+            draw_line([c, -tick, 0.0], [c, tick, 0.0], egui::Color32::from_gray(140), 1.0);
+            draw_line([-tick, c, 0.0], [tick, c, 0.0], egui::Color32::from_gray(140), 1.0);
+        }
+        if let Some(p) = project([c, 0.0, 0.0]) {
+            if rect.contains(p) && c.abs() > 0.001 {
+                let text = if step >= 1.0 {
+                    format!("{}", c as i64)
+                } else {
+                    format!("{c:.2}")
+                };
+                painter.text(
+                    p + egui::vec2(3.0, -14.0),
+                    egui::Align2::LEFT_TOP,
+                    text,
+                    font.clone(),
+                    egui::Color32::from_gray(150),
+                );
+            }
+        }
+        if let Some(p) = project([0.0, c, 0.0]) {
+            if rect.contains(p) && c.abs() > 0.001 {
+                let text = if step >= 1.0 {
+                    format!("{}", c as i64)
+                } else {
+                    format!("{c:.2}")
+                };
+                painter.text(
+                    p + egui::vec2(3.0, 3.0),
+                    egui::Align2::LEFT_TOP,
+                    text,
+                    font.clone(),
+                    egui::Color32::from_gray(150),
+                );
+            }
+        }
+        label_k += step;
+    }
+
+    let mut triangles: Vec<([egui::epaint::Vertex; 3], f32)> = Vec::with_capacity(indices.len());
+
+    for tri in &indices {
+        let mut verts = [egui::epaint::Vertex {
+            pos: egui::Pos2::ZERO,
+            uv: egui::Pos2::ZERO,
+            color: egui::Color32::WHITE,
+        }; 3];
+        let mut depth = 0.0f32;
+        let mut valid = true;
+        for (slot, &i) in verts.iter_mut().zip(tri.iter()) {
+            let v = mesh.vertices[i as usize];
+            let n = normals[i as usize];
+            let view_pos = mat4_mul_vec4(view, [v[0], v[1], v[2], 1.0f32]);
+            let clip_pos = mat4_mul_vec4(proj, view_pos);
+            if clip_pos[3] < 0.001 {
+                valid = false;
+                break;
+            }
+            depth += (view_pos[0] * view_pos[0]
+                + view_pos[1] * view_pos[1]
+                + view_pos[2] * view_pos[2])
+                .sqrt();
+            let ndc_x = clip_pos[0] / clip_pos[3];
+            let ndc_y = clip_pos[1] / clip_pos[3];
+            let sx = rect.left() + (ndc_x * 0.5 + 0.5) * rect.width();
+            let sy = rect.top() + (1.0 - (ndc_y * 0.5 + 0.5)) * rect.height();
+            let dot = (n[0] * light_dir[0] + n[1] * light_dir[1] + n[2] * light_dir[2]).max(0.0);
+            let shade = 0.3 + 0.7 * dot;
+            *slot = egui::epaint::Vertex {
+                pos: egui::pos2(sx, sy),
+                uv: egui::Pos2::ZERO,
+                color: egui::Color32::from_rgba_unmultiplied(
+                    (shade * 180.0) as u8,
+                    (shade * 200.0) as u8,
+                    (shade * 255.0) as u8,
+                    255,
+                ),
+            };
+        }
+        if !valid {
+            continue;
+        }
+        triangles.push((verts, depth / 3.0));
+    }
+
+    triangles.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut vertices: Vec<egui::epaint::Vertex> = Vec::with_capacity(triangles.len() * 3);
+    let mut tri_idx: Vec<u32> = Vec::with_capacity(triangles.len() * 3);
+    for (verts, _) in &triangles {
+        let base = vertices.len() as u32;
+        vertices.extend_from_slice(verts);
+        tri_idx.extend_from_slice(&[base, base + 1, base + 2]);
+    }
+
+    for start in (0..vertices.len()).step_by(6000) {
+        let end = (start + 6000).min(vertices.len());
+        let base = start as u32;
+        let idx: Vec<u32> = tri_idx[start..end].iter().map(|i| i - base).collect();
+        let mesh_shape = egui::Mesh {
+            vertices: vertices[start..end].to_vec(),
+            indices: idx,
+            ..Default::default()
+        };
+        painter.add(egui::Shape::Mesh(mesh_shape));
+    }
+
+    let fwd = normalize([
+        camera.target[0] - eye[0],
+        camera.target[1] - eye[1],
+        camera.target[2] - eye[2],
+    ]);
+    let cam_up = [0.0f32, 1.0, 0.0];
+    let cam_right = normalize([
+        fwd[1] * cam_up[2] - fwd[2] * cam_up[1],
+        fwd[2] * cam_up[0] - fwd[0] * cam_up[1],
+        fwd[0] * cam_up[1] - fwd[1] * cam_up[0],
+    ]);
+    let cam_true_up = [
+        cam_right[1] * fwd[2] - cam_right[2] * fwd[1],
+        cam_right[2] * fwd[0] - cam_right[0] * fwd[2],
+        cam_right[0] * fwd[1] - cam_right[1] * fwd[0],
+    ];
+
+    let origin = egui::pos2(rect.left() + 40.0, rect.bottom() - 40.0);
+    let gizmo_len = 26.0;
+    let axes: [([f32; 3], egui::Color32, &str); 3] = [
+        ([1.0, 0.0, 0.0], egui::Color32::from_rgb(230, 70, 70), "X"),
+        ([0.0, 1.0, 0.0], egui::Color32::from_rgb(70, 220, 70), "Y"),
+        ([0.0, 0.0, 1.0], egui::Color32::from_rgb(80, 130, 250), "Z"),
+    ];
+    for (dir, color, name) in axes {
+        let sx = dir[0] * cam_right[0] + dir[1] * cam_right[1] + dir[2] * cam_right[2];
+        let sy = -(dir[0] * cam_true_up[0] + dir[1] * cam_true_up[1] + dir[2] * cam_true_up[2]);
+        let end = origin + egui::vec2(sx * gizmo_len, sy * gizmo_len);
+        painter.line_segment([origin, end], egui::Stroke::new(2.0_f32, color));
+        painter.text(
+            end + egui::vec2(sx * 7.0, sy * 7.0),
+            egui::Align2::CENTER_CENTER,
+            name,
+            egui::FontId::proportional(12.0),
+            color,
+        );
+    }
+}
+
+fn normalize(v: [f32; 3]) -> [f32; 3] {
+    let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
+    if len > 0.0 { [v[0] / len, v[1] / len, v[2] / len] } else { [0.0, 0.0, 1.0] }
+}
+
+fn build_matrices(eye: [f32; 3], target: [f32; 3], aspect: f32, distance: f32) -> ([[f32; 4]; 4], [[f32; 4]; 4]) {
+    let fwd = normalize([target[0] - eye[0], target[1] - eye[1], target[2] - eye[2]]);
+    let up = [0.0f32, 1.0, 0.0];
+    let right = normalize([
+        fwd[1] * up[2] - fwd[2] * up[1],
+        fwd[2] * up[0] - fwd[0] * up[2],
+        fwd[0] * up[1] - fwd[1] * up[0],
+    ]);
+    let true_up = [
+        right[1] * fwd[2] - right[2] * fwd[1],
+        right[2] * fwd[0] - right[0] * fwd[2],
+        right[0] * fwd[1] - right[1] * fwd[0],
+    ];
+
+    let view = [
+        [right[0], right[1], right[2], -(right[0] * eye[0] + right[1] * eye[1] + right[2] * eye[2])],
+        [true_up[0], true_up[1], true_up[2], -(true_up[0] * eye[0] + true_up[1] * eye[1] + true_up[2] * eye[2])],
+        [-fwd[0], -fwd[1], -fwd[2], fwd[0] * eye[0] + fwd[1] * eye[1] + fwd[2] * eye[2]],
+        [0.0, 0.0, 0.0, 1.0],
+    ];
+
+    let fov = 60.0f32.to_radians();
+    let near = 0.1f32;
+    let far = (distance * 4.0).max(100.0);
+    let f = 1.0 / (fov / 2.0).tan();
+    let nf = 1.0 / (near - far);
+    let proj = [
+        [f / aspect, 0.0, 0.0, 0.0],
+        [0.0, f, 0.0, 0.0],
+        [0.0, 0.0, (far + near) * nf, 2.0 * far * near * nf],
+        [0.0, 0.0, -1.0, 0.0],
+    ];
+
+    (proj, view)
+}
+
+fn mat4_mul_vec4(m: [[f32; 4]; 4], v: [f32; 4]) -> [f32; 4] {
+    [
+        m[0][0] * v[0] + m[0][1] * v[1] + m[0][2] * v[2] + m[0][3] * v[3],
+        m[1][0] * v[0] + m[1][1] * v[1] + m[1][2] * v[2] + m[1][3] * v[3],
+        m[2][0] * v[0] + m[2][1] * v[1] + m[2][2] * v[2] + m[2][3] * v[3],
+        m[3][0] * v[0] + m[3][1] * v[1] + m[3][2] * v[2] + m[3][3] * v[3],
+    ]
 }
 
 fn run_cli(args: &[String]) -> Result<(), String> {
@@ -173,7 +767,6 @@ fn usage_error(message: &str) -> String {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    // If CLI arguments provided, run in CLI mode
     if !args.is_empty() {
         match run_cli(&args) {
             Ok(()) => {}
@@ -185,7 +778,6 @@ fn main() {
         return;
     }
 
-    // Otherwise, launch GUI
     let mut options = eframe::NativeOptions::default();
     options.viewport.inner_size = Some(egui::vec2(1280.0, 800.0));
     options.viewport.resizable = Some(true);

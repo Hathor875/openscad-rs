@@ -33,7 +33,8 @@ function_def = {
 }
 
 parameters = { parameter ~ ("," ~ parameter)* ~ ","? }
-parameter = { identifier ~ (EqSign ~ expression)? }
+// An empty alternative tolerates stray commas in parameter lists (e.g. `f(a, , b)`).
+parameter = { identifier? ~ (EqSign ~ expression)? }
 
 module_instantiation = {
     modifier* ~ module_id ~ "(" ~ arguments? ~ ")" ~ (child_block)?
