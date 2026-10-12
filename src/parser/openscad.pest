@@ -85,8 +85,10 @@ addition = {
 }
 
 multiplication = {
-    unary ~ ((Star | Slash | Percent) ~ unary)*
+    power ~ ((Star | Slash | Percent) ~ power)*
 }
+
+power = { unary ~ (Caret ~ power)? }
 
 unary = {
     (Minus | Bang | Tilde)* ~ postfix

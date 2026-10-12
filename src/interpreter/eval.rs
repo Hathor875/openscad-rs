@@ -169,10 +169,18 @@ impl Evaluator {
         match func_val {
             Value::Function(func) => {
                 let new_env = Environment::with_parent(self.env.clone());
+                let mut positional = args.iter().filter(|arg| arg.name.is_empty());
                 
-                for (i, (param_name, default)) in func.params.iter().enumerate() {
-                    let value = if i < args.len() && args[i].value.is_some() {
-                        self.eval(args[i].value.as_ref().unwrap())?
+                for (param_name, default) in &func.params {
+                    let argument = args.iter()
+                        .find(|arg| arg.name == *param_name)
+                        .or_else(|| positional.next());
+                    let value = if let Some(arg) = argument {
+                        if let Some(expr) = &arg.value {
+                            self.eval(expr)?
+                        } else {
+                            Value::Undef
+                        }
                     } else if let Some(default_expr) = default {
                         let mut eval = Evaluator::new(Rc::new(new_env.clone()));
                         eval.eval(default_expr)?

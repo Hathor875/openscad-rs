@@ -111,7 +111,7 @@ impl Parser {
                     }
                 }
                 Rule::module_id => {
-                    name = inner.as_str().to_string();
+                    name = inner.as_str().trim().to_string();
                 }
                 Rule::arguments => {
                     for arg in inner.into_inner() {
@@ -167,7 +167,7 @@ impl Parser {
                     value = Some(Self::parse_expression(inner)?);
                 }
                 Rule::identifier => {
-                    name = inner.as_str().to_string();
+                    name = inner.as_str().trim().to_string();
                 }
                 Rule::EqSign => {
                     // Skip the equals sign
@@ -191,7 +191,7 @@ impl Parser {
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::identifier => {
-                    name = inner.as_str().to_string();
+                    name = inner.as_str().trim().to_string();
                 }
                 Rule::expression => {
                     value = Some(Self::parse_expression(inner)?);
@@ -212,7 +212,7 @@ impl Parser {
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::identifier => {
-                    name = inner.as_str().to_string();
+                    name = inner.as_str().trim().to_string();
                 }
                 Rule::parameters => {
                     for param in inner.into_inner() {
@@ -299,7 +299,7 @@ impl Parser {
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::identifier => {
-                    name = inner.as_str().to_string();
+                    name = inner.as_str().trim().to_string();
                 }
                 Rule::expression => {
                     value = Some(Self::parse_expression(inner)?);
@@ -320,7 +320,7 @@ impl Parser {
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::identifier => {
-                    name = inner.as_str().to_string();
+                    name = inner.as_str().trim().to_string();
                 }
                 Rule::parameters => {
                     for param in inner.into_inner() {
@@ -398,6 +398,7 @@ impl Parser {
                 ("/", BinaryOp::Divide),
                 ("%", BinaryOp::Modulo),
             ]),
+            Rule::power => Self::parse_power(pair),
             Rule::unary => Self::parse_unary(pair),
             Rule::postfix => Self::parse_postfix(pair),
             Rule::literal => Self::parse_literal(pair),
@@ -451,6 +452,7 @@ impl Parser {
     
     fn parse_unary(pair: Pair<Rule>) -> Result<Expression> {
         let span = Self::pest_span_to_span(pair.as_span());
+        let mut operators = Vec::new();
         let mut expr = None;
         
         for inner in pair.into_inner() {
@@ -459,22 +461,38 @@ impl Parser {
                     expr = Some(Self::parse_expression(inner)?);
                 }
                 Rule::Minus | Rule::Bang | Rule::Tilde => {
-                    let op_str = inner.as_str();
-                    if let Some(e) = expr.take() {
-                        let op = match op_str {
-                            "-" => UnaryOp::Negate,
-                            "!" => UnaryOp::Not,
-                            "~" => UnaryOp::BinaryNot,
-                            _ => UnaryOp::Negate,
-                        };
-                        expr = Some(Expression::UnaryOp(op, Box::new(e), span));
-                    }
+                    operators.push(match inner.as_str() {
+                        "-" => UnaryOp::Negate,
+                        "!" => UnaryOp::Not,
+                        "~" => UnaryOp::BinaryNot,
+                        _ => unreachable!(),
+                    });
                 }
                 _ => {}
             }
         }
         
-        expr.ok_or_else(|| anyhow::anyhow!("Empty unary expression"))
+        let mut expr = expr.ok_or_else(|| anyhow::anyhow!("Empty unary expression"))?;
+        for op in operators.into_iter().rev() {
+            expr = Expression::UnaryOp(op, Box::new(expr), span);
+        }
+        Ok(expr)
+    }
+
+    fn parse_power(pair: Pair<Rule>) -> Result<Expression> {
+        let mut inner = pair.clone().into_inner();
+        let left = Self::parse_expression(inner.next().unwrap())?;
+        if inner.next().is_some() {
+            let right = Self::parse_expression(inner.next().unwrap())?;
+            Ok(Expression::BinaryOp(
+                BinaryOp::Exponent,
+                Box::new(left),
+                Box::new(right),
+                Self::pest_span_to_span(pair.as_span()),
+            ))
+        } else {
+            Ok(left)
+        }
     }
     
     fn parse_postfix(pair: Pair<Rule>) -> Result<Expression> {
@@ -487,7 +505,21 @@ impl Parser {
                     base_expr = Some(Self::parse_atom(inner)?);
                 }
                 Rule::function_call_suffix => {
-                    for suffix in inner.into_inner() {
+                    let suffixes: Vec<_> = inner.into_inner().collect();
+                    if suffixes.is_empty() {
+                        if let Some(e) = base_expr.take() {
+                            base_expr = Some(Expression::FunctionCall {
+                                name: match &e {
+                                    Expression::Lookup(n, _) => n.clone(),
+                                    _ => String::new(),
+                                },
+                                args: Vec::new(),
+                                expr: None,
+                                span,
+                            });
+                        }
+                    }
+                    for suffix in suffixes {
                         match suffix.as_rule() {
                             Rule::arguments => {
                                 let mut args = Vec::new();
@@ -522,7 +554,7 @@ impl Parser {
                                 if let Some(e) = base_expr.take() {
                                     base_expr = Some(Expression::MemberLookup(
                                         Box::new(e),
-                                        suffix.as_str().to_string(),
+                                        suffix.as_str().trim().to_string(),
                                         span,
                                     ));
                                 }
@@ -651,15 +683,18 @@ impl Parser {
     
     fn parse_range(pair: Pair<Rule>) -> Result<Expression> {
         let span = Self::pest_span_to_span(pair.as_span());
-        let mut inner = pair.into_inner();
-        
-        let start = Self::parse_expression(inner.next().unwrap())?;
-        let end = Self::parse_expression(inner.next().unwrap())?;
-        let step = inner.next().map(Self::parse_expression).transpose()?;
+        let expressions: Vec<_> = pair.into_inner()
+            .map(Self::parse_expression)
+            .collect::<Result<Vec<_>>>()?;
+        let (start, step, end) = match expressions.as_slice() {
+            [start, end] => (start.clone(), None, end.clone()),
+            [start, step, end] => (start.clone(), Some(Box::new(step.clone())), end.clone()),
+            _ => return Err(anyhow::anyhow!("Range requires two or three expressions")),
+        };
         
         Ok(Expression::Range {
             start: Box::new(start),
-            step: step.map(Box::new),
+            step,
             end: Box::new(end),
             span,
         })
