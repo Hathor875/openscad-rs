@@ -130,5 +130,9 @@ non-empty output, dimensions, and visual/topological behavior.
 
 ## License
 
-This repository is a work in progress. Add the project license before
-redistributing it as a finished product.
+This project is licensed under the GNU General Public License v3.0 or later
+(`GPL-3.0-or-later`). See [LICENSE](LICENSE) for the full text.
+
+GPL-3.0 is compatible with the GPL-2.0 license of OpenSCAD and with the
+MIT/Apache-2.0 licensed Rust crates used by this project, so the program may be
+combined with and merged into the OpenSCAD ecosystem.
