@@ -677,7 +677,9 @@ fn render_mesh_2d(
 
     let indices: Vec<[u32; 3]> = mesh
         .indices
-        .chunks_exact(3)
+        .as_chunks::<3>()
+        .0
+        .iter()
         .map(|c| [c[0], c[1], c[2]])
         .collect();
 

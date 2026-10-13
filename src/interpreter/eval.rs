@@ -203,12 +203,12 @@ impl Evaluator {
                     };
                     if cols_a == rows_b {
                         let mut res_mat = Vec::with_capacity(rows_a);
-                        for i in 0..rows_a {
+                        for m1_row in m1.iter() {
                             let mut row = Vec::with_capacity(cols_b);
                             for j in 0..cols_b {
                                 let mut sum = 0.0;
                                 for k in 0..cols_a {
-                                    let a_ik = match &m1[i] {
+                                    let a_ik = match m1_row {
                                         Value::Vector(v) => v[k].as_number()?,
                                         _ => 0.0,
                                     };
@@ -698,7 +698,7 @@ impl Evaluator {
         match val {
             Value::Vector(v) => match field {
                 "x" | "0" => v
-                    .get(0)
+                    .first()
                     .cloned()
                     .ok_or_else(|| "Vector index out of bounds".into()),
                 "y" | "1" => v

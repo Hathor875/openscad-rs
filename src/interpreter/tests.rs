@@ -1,4 +1,5 @@
 #[cfg(test)]
+#[allow(clippy::module_inception)]
 mod tests {
     use crate::interpreter::{Environment, Executor, Value};
     use crate::parser::Parser;
@@ -1041,12 +1042,10 @@ mod tests {
         ));
 
         let env = eval_source("x = search(\"a\", [\"banana\", \"apple\", \"cherry\"]);").unwrap();
-        if let Some(val) = env.get("x") {
-            if let crate::interpreter::Value::Vector(vec) = val {
-                assert_eq!(vec.len(), 2);
-                assert_eq!(vec[0], crate::interpreter::Value::Number(0.0));
-                assert_eq!(vec[1], crate::interpreter::Value::Number(1.0));
-            }
+        if let Some(crate::interpreter::Value::Vector(vec)) = env.get("x") {
+            assert_eq!(vec.len(), 2);
+            assert_eq!(vec[0], crate::interpreter::Value::Number(0.0));
+            assert_eq!(vec[1], crate::interpreter::Value::Number(1.0));
         }
     }
 

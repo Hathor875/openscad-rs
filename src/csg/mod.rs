@@ -157,7 +157,7 @@ impl Mesh {
         if data.len() >= 84 {
             let count = u32::from_le_bytes(data[80..84].try_into().unwrap()) as usize;
             if 84 + count.saturating_mul(50) == data.len() {
-                for triangle in data[84..].chunks_exact(50) {
+                for triangle in data[84..].as_chunks::<50>().0 {
                     let mut indices = [0; 3];
                     for (index, vertex) in indices.iter_mut().enumerate() {
                         let offset = 12 + index * 12;
@@ -856,6 +856,12 @@ impl Mesh {
             out.extend_from_slice(&0u16.to_le_bytes());
         }
         out
+    }
+}
+
+impl Default for Mesh {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

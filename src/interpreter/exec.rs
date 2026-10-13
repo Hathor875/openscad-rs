@@ -7,6 +7,9 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
+/// Resolved tessellation triple: `$fn`, `$fa` and `$fs`.
+type Tessellation = (Option<usize>, Option<f64>, Option<f64>);
+
 pub struct Executor {
     pub env: Rc<Environment>,
     csg_stack: Vec<crate::csg::CsgBuilder>,
@@ -511,7 +514,7 @@ impl Executor {
             return Err("transformation vector must be a vector".into());
         };
         let x = values
-            .get(0)
+            .first()
             .and_then(|v| v.as_number().ok())
             .unwrap_or(0.0);
         let y = values
@@ -600,7 +603,7 @@ impl Executor {
         fn_: Option<f64>,
         fa: Option<f64>,
         fs: Option<f64>,
-    ) -> Result<(Option<usize>, Option<f64>, Option<f64>), String> {
+    ) -> Result<Tessellation, String> {
         let fn_ = fn_
             .filter(|&v| v > 0.0)
             .map(|value| {
@@ -1176,7 +1179,7 @@ impl Executor {
                         Value::Number(s) => [s; 3],
                         Value::Vector(values) => [
                             values
-                                .get(0)
+                                .first()
                                 .and_then(|v| v.as_number().ok())
                                 .unwrap_or(1.0),
                             values
@@ -1203,7 +1206,7 @@ impl Executor {
                         size
                     ));
                 }
-                if size.iter().any(|value| *value == 0.0) {
+                if size.contains(&0.0) {
                     return Ok(Some(()));
                 }
                 let center = self.get_bool(arguments, "center", false)?;
@@ -1490,8 +1493,7 @@ impl Executor {
             "scale" => {
                 let positional = arguments
                     .iter()
-                    .filter(|argument| argument.name.is_empty())
-                    .next()
+                    .find(|argument| argument.name.is_empty())
                     .and_then(|argument| argument.value.as_ref());
                 let v = if let Some(expression) = positional {
                     match self.eval_expr(expression)? {

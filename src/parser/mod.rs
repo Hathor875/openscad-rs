@@ -57,43 +57,40 @@ impl Parser {
     }
 
     fn parse_top_level(pair: Pair<Rule>, file: &mut SourceFile) -> Result<()> {
-        match pair.as_rule() {
-            Rule::top_level => {
-                for inner in pair.into_inner() {
-                    // eprintln!("DEBUG parse_top_level: inner rule = {:?}", inner.as_rule());
-                    match inner.as_rule() {
-                        Rule::statement => {
-                            if let Some(stmt) = Self::parse_statement(inner)? {
-                                file.statements.push(stmt);
-                            }
+        if pair.as_rule() == Rule::top_level {
+            for inner in pair.into_inner() {
+                // eprintln!("DEBUG parse_top_level: inner rule = {:?}", inner.as_rule());
+                match inner.as_rule() {
+                    Rule::statement => {
+                        if let Some(stmt) = Self::parse_statement(inner)? {
+                            file.statements.push(stmt);
                         }
-                        Rule::include_stmt => {
-                            if let Some(inner2) = inner
-                                .clone()
-                                .into_inner()
-                                .find(|pair| pair.as_rule() == Rule::include_path)
-                            {
-                                let path = inner2.as_str().trim().to_string();
-                                file.statements
-                                    .push(Statement::Include(path, Span::default()));
-                            }
-                        }
-                        Rule::use_directive => {
-                            if let Some(inner2) = inner
-                                .clone()
-                                .into_inner()
-                                .find(|pair| pair.as_rule() == Rule::include_path)
-                            {
-                                let path = inner2.as_str().trim().to_string();
-                                file.statements.push(Statement::Use(path, Span::default()));
-                            }
-                        }
-                        Rule::EOI | Rule::WHITESPACE | Rule::COMMENT => {}
-                        _ => {}
                     }
+                    Rule::include_stmt => {
+                        if let Some(inner2) = inner
+                            .clone()
+                            .into_inner()
+                            .find(|pair| pair.as_rule() == Rule::include_path)
+                        {
+                            let path = inner2.as_str().trim().to_string();
+                            file.statements
+                                .push(Statement::Include(path, Span::default()));
+                        }
+                    }
+                    Rule::use_directive => {
+                        if let Some(inner2) = inner
+                            .clone()
+                            .into_inner()
+                            .find(|pair| pair.as_rule() == Rule::include_path)
+                        {
+                            let path = inner2.as_str().trim().to_string();
+                            file.statements.push(Statement::Use(path, Span::default()));
+                        }
+                    }
+                    Rule::EOI | Rule::WHITESPACE | Rule::COMMENT => {}
+                    _ => {}
                 }
             }
-            _ => {}
         }
         Ok(())
     }
@@ -689,7 +686,7 @@ impl Parser {
     }
 
     fn parse_atom(pair: Pair<Rule>) -> Result<Expression> {
-        for inner in pair.into_inner() {
+        if let Some(inner) = pair.into_inner().next() {
             // eprintln!("DEBUG parse_atom: inner rule = {:?}, text = {:?}", inner.as_rule(), inner.as_str());
             match inner.as_rule() {
                 Rule::let_expr => return Self::parse_let_expr(inner),

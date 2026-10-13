@@ -78,6 +78,12 @@ impl Builtins {
     }
 }
 
+impl Default for Builtins {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 fn expect_num(args: &[Value], n: usize) -> Result<Vec<f64>, String> {
     if args.len() != n {
         return Err(format!("Expected {} arguments, got {}", n, args.len()));
@@ -311,7 +317,7 @@ fn builtin_shuffle(args: Vec<Value>) -> Result<Value, String> {
                 state ^= state >> 12;
                 state ^= state << 25;
                 state ^= state >> 27;
-                state = state.wrapping_mul(0x2545F4914f6cdd1d);
+                state = state.wrapping_mul(0x2545f4914f6cdd1d);
                 let j = (state as usize) % (i + 1);
                 result.swap(i, j);
             }
@@ -324,7 +330,7 @@ fn builtin_shuffle(args: Vec<Value>) -> Result<Value, String> {
                 state ^= state >> 12;
                 state ^= state << 25;
                 state ^= state >> 27;
-                state = state.wrapping_mul(0x2545F4914f6cdd1d);
+                state = state.wrapping_mul(0x2545f4914f6cdd1d);
                 let j = (state as usize) % (i + 1);
                 chars.swap(i, j);
             }
@@ -546,7 +552,7 @@ fn builtin_rands(args: Vec<Value>) -> Result<Value, String> {
         *state ^= *state >> 12;
         *state ^= *state << 25;
         *state ^= *state >> 27;
-        (*state).wrapping_mul(0x2545F4914f6cdd1d)
+        (*state).wrapping_mul(0x2545f4914f6cdd1d)
     }
 
     let count = count.trunc().max(0.0) as usize;
