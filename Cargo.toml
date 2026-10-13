@@ -4,6 +4,15 @@ version = "0.1.0"
 edition = "2021"
 description = "OpenSCAD rewritten in Rust"
 license = "GPL-3.0-or-later"
+repository = "https://github.com/Hathor875/openscad-rs"
+homepage = "https://github.com/Hathor875/openscad-rs"
+authors = ["Krzysztof Cieślik"]
+
+[package.metadata.wix]
+upgrade-guid = "C3BCA37D-F5CF-4519-AECE-EC4CD229FF4A"
+path-guid = "F8250F6C-4488-46BF-BE94-7A6A638017DC"
+license = false
+eula = false
 
 [dependencies]
 # Parsing
@@ -48,3 +57,8 @@ winapi = { version = "0.3.9", features = [
 
 [dev-dependencies]
 pretty_assertions = "1.4"
+
+# The profile that 'dist' will build with
+[profile.dist]
+inherits = "release"
+lto = "thin"

@@ -134,6 +134,48 @@ cargo build --locked && ./scripts/ci-smoke.sh
 The smoke test writes its exports to `out/` and accepts the binary and the
 output directory as arguments: `./scripts/ci-smoke.sh <binary> <out-dir>`.
 
+## Installation
+
+Prebuilt binaries are attached to every
+[release](https://github.com/Hathor875/openscad-rs/releases). The same binary
+provides both interfaces: with arguments it is the headless CLI, without them
+it starts the GUI.
+
+```sh
+# Linux and macOS
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://github.com/Hathor875/openscad-rs/releases/latest/download/openscad-rust-installer.sh | sh
+
+# Homebrew
+brew install --formula https://github.com/Hathor875/openscad-rs/releases/latest/download/openscad-rust.rb
+
+# npm
+npx openscad-rust model.scad -o model.stl
+```
+
+On Windows, download and run the `.msi` from the release page. Portable
+`.zip` and `.tar.xz` archives are available for every platform.
+
+Running the GUI on Linux needs the usual desktop libraries present:
+`libgtk-3`, `libwayland-client`, `libxkbcommon` and `libGL`. The CLI has no
+runtime dependency beyond glibc.
+
+## Cutting a release
+
+Releases are built by [cargo-dist](https://axodotdev.github.io/cargo-dist);
+the configuration lives in `dist-workspace.toml` and the workflow in
+`.github/workflows/release.yml`.
+
+```sh
+# 1. Set the new version in Cargo.toml and record it in CHANGELOG.md
+# 2. Commit, then tag and push the tag
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The tag push builds every target, assembles the archives and installers, and
+publishes them to a GitHub Release with checksums.
+
 ## Command-line usage
 
 The command accepts one input `.scad` file. With no output option it parses and
