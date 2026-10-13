@@ -225,10 +225,10 @@ gridfinity, and others) with the release binary. Current state
 
 | Result | Count | Share |
 | --- | --- | --- |
-| Evaluates successfully | 3610 | 97.3% |
-| — with generated geometry | 1334 | 36.0% |
-| Failures (parse/eval) | 62 | 1.7% |
-| Timeouts (> 10 s) | 37 | 1.0% |
+| Evaluates successfully | 3651 | 98.4% |
+| — with generated geometry | 1369 | 36.9% |
+| Failures (parse/eval) | 37 | 1.0% |
+| Timeouts (> 10 s) | 21 | 0.6% |
 | Crashes/panics | 0 | 0% |
 
 The full report is written to `../mass_test_report.md` with raw results in
