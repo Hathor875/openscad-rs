@@ -4,21 +4,24 @@
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 An experimental Rust implementation of the OpenSCAD language and geometry
-pipeline. The project is currently a **headless interpreter and mesh exporter**,
-not a replacement for the OpenSCAD GUI.
+pipeline. One binary serves both roles: run it with arguments for headless
+CLI evaluation and export, or with no arguments to open the desktop GUI
+(code editor, live 3D preview, and console).
 
 ## Current status
 
 The parser, interpreter, executor, and CSG pipeline are usable for a growing
-subset of OpenSCAD models. The implementation is developed against official
-OpenSCAD examples and the BOSL2 library.
+subset of OpenSCAD models, and the GUI provides an interactive editing and
+preview workflow. Development is validated against the official OpenSCAD
+example suite and popular libraries such as BOSL2, NopSCADlib, and dotSCAD.
 
 ### Implemented
 
 - Pest parser for OpenSCAD expressions, statements, modules, and functions.
 - Logos lexer with numbers, strings, comments, operators, and source locations.
-- AST and source-file handling for `include` and `use`, including relative paths
-  and include-cycle detection.
+- AST and source-file handling for `include` and `use`, including relative
+  paths; cyclic `include`/`use` chains are skipped with a warning, matching
+  OpenSCAD and the NopSCADlib pattern.
 - Variables, functions, modules, positional and named arguments, defaults, and
   lexical environments.
 - Control flow: statement `if`, expression `if/else`, ternary expressions,
@@ -36,19 +39,43 @@ OpenSCAD examples and the BOSL2 library.
   `hull`, and `minkowski`.
 - STL and OBJ import/export; ASCII and binary STL export.
 - OpenSCAD resolution variables `$fn`, `$fa`, and `$fs`.
-- A regression suite covering parser, interpreter, primitives, transformations,
-  CSG, exports, and compatibility features.
+- OpenSCAD-style evaluation: bad primitive arguments, type mismatches,
+  failed assertions, and runaway recursion degrade to `WARNING` messages
+  and `undef` instead of aborting the whole model.
+- Cooperative cancellation of running evaluations (GUI Cancel button/Esc).
+- A regression suite covering parser, interpreter, primitives,
+  transformations, CSG, exports, and compatibility features.
+
+### Graphical user interface
+
+Running the binary without arguments opens the GUI (`cargo run`):
+
+- Code editor with line numbers, syntax highlighting, a click-to-jump
+  gutter, error-line highlighting, and tab insertion.
+- Debounced auto-preview (600 ms after typing) plus manual run
+  (F5 / Ctrl+Enter); open/save with Ctrl+O / Ctrl+S; a running evaluation
+  can be stopped with the Cancel button or Esc.
+- 3D viewport with a Z-up camera matching OpenSCAD, drag to orbit, scroll
+  to zoom, an adaptive ground grid with tick labels and colored axes,
+  an orthographic/perspective toggle, and Iso/Front/Right/Top/Fit presets.
+- Console with evaluation messages and jump-to-line buttons for parse
+  errors; status bar showing evaluation time, triangle count, cursor world
+  coordinates, zoom, and projection mode.
+- STL export directly from the GUI.
 
 ### Known limitations
 
-- This is not yet language- or geometry-compatible with all OpenSCAD models.
-- BOSL2 loading has progressed through much of `std.scad`, but a filtered
-  comprehension containing a multi-level `if/else if` expression is still a
-  parser blocker in `attachments.scad`.
+- This is not yet language- or geometry-compatible with all OpenSCAD models;
+  see the mass-test results under [Compatibility work](#compatibility-work).
+- BOSL2 mostly loads, but individual examples still fail evaluation (for
+  example `attachments.scad`), and some official OpenSCAD test files use
+  syntax that does not parse yet.
 - Manifold CSG results can differ from OpenSCAD in tessellation, topology, and
   occasionally bounds, especially for complex nested booleans.
-- The renderer is headless; there is no GUI, preview, editor, animation, or
-  interactive parameter control.
+- GUI gaps: there is no animation timeline, parameter customizer, undo, or
+  PNG/screenshot export (eframe 0.24 has no capture API); the camera supports
+  orbit and zoom only, and preview uses CPU painter's-algorithm depth sorting
+  rather than a depth-buffered GPU pipeline.
 - Some advanced builtins, modules, special variables, and import formats are
   still missing.
 
@@ -56,6 +83,8 @@ OpenSCAD examples and the BOSL2 library.
 
 - Rust stable and Cargo.
 - A working C/C++ toolchain and CMake for the `manifold3d` dependency.
+- A graphical session (X11, Wayland, or XWayland) for the GUI; the CLI runs
+  headless.
 
 The project is also tested in the development container used by this
 repository:
@@ -74,6 +103,8 @@ From the repository directory:
 ```sh
 cargo test
 cargo build --release
+cargo run              # GUI (no arguments)
+cargo run -- model.scad -o model.stl   # headless CLI
 ```
 
 If the host does not provide the native dependencies required by `manifold3d`,
@@ -144,16 +175,39 @@ cargo run -- model.scad -o model.stl --binary
 | `src/ast` | Expressions, statements, modules, and source metadata |
 | `src/interpreter` | Values, environments, builtins, evaluation, and execution |
 | `src/csg` | Meshes, primitives, transforms, booleans, and exporters |
-| `src/main.rs` | Headless CLI |
+| `src/cancel.rs` | Cooperative cancellation of running evaluations |
+| `src/main.rs` | egui GUI, viewport rendering, and CLI entry point |
 | `src/interpreter/tests.rs` | End-to-end regression tests |
 
 ## Compatibility work
 
-Compatibility is validated with official OpenSCAD examples such as
-`Parametric/candleStand.scad` and `Basics/CSG-modules.scad`, plus selected BOSL2
-library models. Matching triangle counts is not expected: tessellation is
-implementation-dependent. Comparisons should use successful evaluation,
-non-empty output, dimensions, and visual/topological behavior.
+Compatibility is validated two ways.
+
+### Mass compatibility test
+
+`../run_mass_test.py` evaluates every `.scad` file in a ~3700-file corpus
+(official OpenSCAD tests plus BOSL2, NopSCADlib, dotSCAD, LEGO.scad,
+gridfinity, and others) with the release binary. Current state
+(2026-10-13):
+
+| Result | Count | Share |
+| --- | --- | --- |
+| Evaluates successfully | 3610 | 97.3% |
+| — with generated geometry | 1334 | 36.0% |
+| Failures (parse/eval) | 62 | 1.7% |
+| Timeouts (> 10 s) | 37 | 1.0% |
+| Crashes/panics | 0 | 0% |
+
+The full report is written to `../mass_test_report.md` with raw results in
+`../mass_test_results.json`.
+
+### Example models
+
+Official OpenSCAD examples such as `Parametric/candleStand.scad` and
+`Basics/CSG-modules.scad`, plus selected BOSL2 library models. Matching
+triangle counts is not expected: tessellation is implementation-dependent.
+Comparisons should use successful evaluation, non-empty output, dimensions,
+and visual/topological behavior.
 
 ## License
 
