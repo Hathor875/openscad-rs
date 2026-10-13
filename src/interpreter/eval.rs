@@ -325,7 +325,10 @@ impl Evaluator {
         let iterable = self.eval(iterable)?;
         let items = match iterable {
             Value::Vector(items) => items,
-            _ => return Err(format!("for binding '{}' must evaluate to a vector", binding.name)),
+            // OpenSCAD iterates a scalar once and skips `undef` entirely
+            // (`[for (i = 3) i]` -> `[3]`, `[for (i = undef) i]` -> `[]`).
+            Value::Undef => Vec::new(),
+            scalar => vec![scalar],
         };
 
         for item in items {
@@ -716,12 +719,20 @@ fn values_cmp(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
 }
 /// Errors OpenSCAD reports as warnings (returning `undef`) instead of aborting.
 fn is_tolerable(error: &str) -> bool {
+    // OpenSCAD never aborts evaluation: bad builtin arguments and type
+    // mismatches become warnings that evaluate to `undef`. `ord`/`chr` misuse
+    // stays an error because silently yielding `undef` would corrupt strings.
+    if error.starts_with("ord expects") || error.starts_with("chr expects") {
+        return false;
+    }
     error.starts_with("Cannot convert")
         || error.starts_with("Matrix dimensions mismatch")
         || error.starts_with("Vector index out of bounds")
         || error.starts_with("Undefined function")
-        || error.starts_with("len expects")
         || error.starts_with("Expected ")
+        // Builtin argument validation, e.g. "floor expects number ...".
+        || error.contains(" expects ")
+        || error.starts_with("posmod divisor")
 }
 
 /// Emit a non-fatal evaluation warning, mirroring OpenSCAD's `WARNING:` output.

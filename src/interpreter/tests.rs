@@ -241,7 +241,9 @@ mod tests {
 
     #[test]
     fn test_string_escapes() {
-        let env = eval_source(r#"x = "line\n\u{03bb}\x21";"#).unwrap();
+        // OpenSCAD decodes `\uXXXX` but not the braced `\u{...}` form,
+        // which it reads as a literal `u{...}`.
+        let env = eval_source(r#"x = "line\n\u03bb\x21";"#).unwrap();
         assert_eq!(
             env.get("x"),
             Some(crate::interpreter::Value::String("line\nλ!".to_string()))
@@ -782,7 +784,7 @@ mod tests {
     }
 
     #[test]
-    fn test_include_cycle_is_rejected() {
+    fn test_include_cycle_is_skipped() {
         let dir = unique_fixture_dir("cycle");
         fs::create_dir_all(&dir).unwrap();
         let first = dir.join("first.scad");
@@ -792,8 +794,8 @@ mod tests {
 
         let source = Parser::parse_file(&first).unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));
-        let error = exec.execute_source(&source).unwrap_err();
-        assert!(error.contains("Cyclic source include"));
+        // OpenSCAD skips the recursive include instead of failing.
+        exec.execute_source(&source).unwrap();
 
         fs::remove_dir_all(dir).unwrap();
     }

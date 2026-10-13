@@ -55,7 +55,10 @@ impl Executor {
         };
         if let Some(path) = &path {
             if !self.loading.insert(path.clone()) {
-                return Err(format!("Cyclic source include '{}'", path.display()));
+                // OpenSCAD silently skips a file that is already being
+                // processed further up the include stack (NopSCADlib relies
+                // on this for its mutually including vitamin files).
+                return Ok(());
             }
             self.source_stack.push(path.clone());
         }
@@ -142,6 +145,8 @@ impl Executor {
                     .and_then(|expr| self.eval_expr(expr))?;
                 let values = match values {
                     Value::Vector(values) => values,
+                    // OpenSCAD skips `undef` bindings and iterates scalars once.
+                    Value::Undef => Vec::new(),
                     value => vec![value],
                 };
                 for value in values {
@@ -160,22 +165,6 @@ impl Executor {
             }
         }
         self.execute(stmt)
-    }
-
-    /// Primitive validation failures that OpenSCAD logs without aborting the run.
-    fn is_geometry_error(error: &str) -> bool {
-        error.starts_with("polyhedron")
-            || error.starts_with("polygon")
-            || error.starts_with("each polyhedron")
-            || error.starts_with("each polygon")
-            || error.starts_with("transformation vector")
-            || error.starts_with("cube dimensions")
-            || error.starts_with("sphere radius")
-            || error.starts_with("circle radius")
-            || error.starts_with("cylinder requires")
-            || error.starts_with("$fn")
-            || error.starts_with("$fa")
-            || error.starts_with("$fs")
     }
 
     fn contains_children_call(statements: &[Statement]) -> bool {
@@ -255,7 +244,8 @@ impl Executor {
             // A `use`d file is evaluated relative to its own location, so nested
             // include/use directives inside it must resolve against its directory.
             if !self.loading.insert(resolved.clone()) {
-                return Err(format!("Cyclic source include '{}'", resolved.display()));
+                // Recursive `use` of a file already on the stack: skip it.
+                return Ok(());
             }
             self.source_stack.push(resolved.clone());
             let result = (|| {
@@ -826,7 +816,7 @@ impl Executor {
             // the assertion passes (echo never fails). OpenSCAD logs a failed
             // assertion without aborting the rest of the model.
             match self.exec_builtin_module(name, arguments, children) {
-                Ok(()) => {
+                Ok(_) => {
                     for child in children {
                         self.execute(child)?;
                     }

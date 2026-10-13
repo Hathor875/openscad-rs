@@ -31,7 +31,7 @@ impl Parser {
         Self::parse_with_path(&input, path.to_string_lossy().into_owned())
     }
 
-    fn parse_with_path(input: &str, path: String) -> Result<SourceFile> {
+    pub fn parse_with_path(input: &str, path: String) -> Result<SourceFile> {
         let pairs = OpenSCADParser::parse(Rule::module, input)?;
         let mut file = SourceFile::new(path);
         
@@ -103,6 +103,16 @@ impl Parser {
                         Rule::function_def => Ok(Some(Self::parse_function_def(first)?)),
                         Rule::if_stmt => Ok(Some(Self::parse_if_stmt(first)?)),
                         Rule::block => Ok(Some(Self::parse_block(first)?)),
+                        // `include`/`use` are statements too: libraries place
+                        // them inside module bodies and blocks.
+                        Rule::include_stmt => Ok(Some(Self::parse_source_directive(
+                            first,
+                            true,
+                        )?)),
+                        Rule::use_directive => Ok(Some(Self::parse_source_directive(
+                            first,
+                            false,
+                        )?)),
                         _ => Ok(None),
                     }
                 } else {
@@ -113,6 +123,20 @@ impl Parser {
         }
     }
     
+    fn parse_source_directive(pair: Pair<Rule>, is_include: bool) -> Result<Statement> {
+        let span = Self::pest_span_to_span(pair.as_span());
+        let path = pair
+            .into_inner()
+            .find(|p| p.as_rule() == Rule::include_path)
+            .map(|p| p.as_str().trim().to_string())
+            .unwrap_or_default();
+        Ok(if is_include {
+            Statement::Include(path, span)
+        } else {
+            Statement::Use(path, span)
+        })
+    }
+
     fn parse_module_instantiation(pair: Pair<Rule>) -> Result<Statement> {
         let mut modifiers = ModuleModifiers::default();
         let mut name = String::new();
@@ -137,7 +161,9 @@ impl Parser {
                 Rule::arguments => {
                     for arg in inner.into_inner() {
                         if let Rule::argument = arg.as_rule() {
-                            args.push(Self::parse_argument(arg)?);
+                            if let Some(argument) = Self::parse_argument(arg)? {
+                                args.push(argument);
+                            }
                         }
                     }
                 }
@@ -189,7 +215,9 @@ impl Parser {
         })
     }
     
-    fn parse_argument(pair: Pair<Rule>) -> Result<Assignment> {
+    /// Parses one call argument. Empty slots from stray commas (`f(a, , b)`)
+    /// yield `None` so they are dropped, matching OpenSCAD.
+    fn parse_argument(pair: Pair<Rule>) -> Result<Option<Assignment>> {
         let span = Self::pest_span_to_span(pair.as_span());
         let mut name = String::new();
         let mut value = None;
@@ -209,10 +237,10 @@ impl Parser {
             }
         }
         
-        if !name.is_empty() {
-            Ok(Assignment::new(name, value, span))
+        if name.is_empty() && value.is_none() {
+            Ok(None)
         } else {
-            Ok(Assignment::new(String::new(), value, span))
+            Ok(Some(Assignment::new(name, value, span)))
         }
     }
     
@@ -294,10 +322,18 @@ impl Parser {
                     }
                 }
                 Rule::statement => {
+                    // A bare `;` is a valid null branch: NopSCADlib writes
+                    // `if (cutout) ; else ...`.
+                    let stmt_span = Self::pest_span_to_span(inner.as_span());
+                    let branch = Self::parse_statement(inner)?
+                        .unwrap_or_else(|| Statement::Block {
+                            statements: Vec::new(),
+                            span: stmt_span,
+                        });
                     if then_branch.is_none() {
-                        then_branch = Some(Box::new(Self::parse_statement(inner)?.ok_or_else(|| anyhow::anyhow!("Empty then branch"))?));
+                        then_branch = Some(Box::new(branch));
                     } else {
-                        else_branch = Some(Box::new(Self::parse_statement(inner)?.ok_or_else(|| anyhow::anyhow!("Empty else branch"))?));
+                        else_branch = Some(Box::new(branch));
                     }
                 }
                 _ => {}
@@ -574,7 +610,9 @@ impl Parser {
                                 let mut args = Vec::new();
                                 for arg in suffix.into_inner() {
                                     if let Rule::argument = arg.as_rule() {
-                                        args.push(Self::parse_argument(arg)?);
+                                        if let Some(argument) = Self::parse_argument(arg)? {
+                                            args.push(argument);
+                                        }
                                     }
                                 }
                                 if let Some(e) = base_expr.take() {
@@ -805,34 +843,28 @@ impl Parser {
                 'r' => value.push('\r'),
                 '\\' => value.push('\\'),
                 '"' => value.push('"'),
-                'x' => {
-                    let hex = chars.by_ref().take(2).collect::<String>();
-                    if hex.len() != 2 {
-                        return Err(anyhow::anyhow!("Invalid hexadecimal string escape"));
-                    }
-                    let byte = u8::from_str_radix(&hex, 16)
-                        .map_err(|_| anyhow::anyhow!("Invalid hexadecimal string escape"))?;
-                    value.push(byte as char);
-                }
-                'u' | 'U' => {
-                    if chars.next() != Some('{') {
-                        return Err(anyhow::anyhow!("Invalid Unicode string escape"));
-                    }
-                    let mut hex = String::new();
-                    loop {
-                        match chars.next() {
-                            Some('}') => break,
-                            Some(c) if c.is_ascii_hexdigit() => hex.push(c),
-                            _ => return Err(anyhow::anyhow!("Invalid Unicode string escape")),
+                'x' | 'u' | 'U' => {
+                    // OpenSCAD decodes `\xHH` and `\uXXXX`; every other
+                    // sequence just drops the backslash (`"\0"` -> `"0"`).
+                    let width = if escaped == 'x' { 2 } else { 4 };
+                    let hex: String = chars.as_str().chars().take(width).collect();
+                    let codepoint = if hex.chars().count() == width && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                        u32::from_str_radix(&hex, 16).ok()
+                    } else {
+                        None
+                    };
+                    match codepoint.and_then(char::from_u32) {
+                        Some(decoded) => {
+                            for _ in 0..width {
+                                chars.next();
+                            }
+                            // `\xHH` values map directly onto Latin-1.
+                            value.push(decoded);
                         }
+                        None => value.push(escaped),
                     }
-                    let codepoint = u32::from_str_radix(&hex, 16)
-                        .map_err(|_| anyhow::anyhow!("Invalid Unicode string escape"))?;
-                    let decoded = char::from_u32(codepoint)
-                        .ok_or_else(|| anyhow::anyhow!("Invalid Unicode code point"))?;
-                    value.push(decoded);
                 }
-                _ => return Err(anyhow::anyhow!("Unknown string escape '\\{}'", escaped)),
+                other => value.push(other),
             }
         }
         Ok(value)
@@ -864,11 +896,9 @@ impl Parser {
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::vector_element => {
-                    let elem_span = Self::pest_span_to_span(inner.as_span());
+                    // OpenSCAD drops empty elements: `[1,,3]` has length 2.
                     if let Some(expr_pair) = inner.into_inner().next() {
                         elements.push(Self::parse_expression(expr_pair)?);
-                    } else {
-                        elements.push(Expression::Literal(LiteralValue::Undefined, elem_span));
                     }
                 }
                 Rule::expression => {
@@ -889,7 +919,9 @@ impl Parser {
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::argument => {
-                    args.push(Self::parse_argument(inner)?);
+                    if let Some(argument) = Self::parse_argument(inner)? {
+                        args.push(argument);
+                    }
                 }
                 Rule::for_let => {
                     for binding in inner.into_inner() {
@@ -946,7 +978,9 @@ impl Parser {
                 Rule::for_c_init => {
                     for arg in inner.into_inner() {
                         if arg.as_rule() == Rule::argument {
-                            init.push(Self::parse_argument(arg)?);
+                            if let Some(argument) = Self::parse_argument(arg)? {
+                                init.push(argument);
+                            }
                         }
                     }
                 }
@@ -958,7 +992,9 @@ impl Parser {
                 Rule::for_c_update => {
                     for arg in inner.into_inner() {
                         if arg.as_rule() == Rule::argument {
-                            update.push(Self::parse_argument(arg)?);
+                            if let Some(argument) = Self::parse_argument(arg)? {
+                                update.push(argument);
+                            }
                         }
                     }
                 }
@@ -1033,7 +1069,9 @@ impl Parser {
                 Rule::arguments => {
                     for arg in inner.into_inner() {
                         if let Rule::argument = arg.as_rule() {
-                            args.push(Self::parse_argument(arg)?);
+                            if let Some(argument) = Self::parse_argument(arg)? {
+                                args.push(argument);
+                            }
                         }
                     }
                 }
@@ -1061,7 +1099,9 @@ impl Parser {
                 Rule::arguments => {
                     for arg in inner.into_inner() {
                         if let Rule::argument = arg.as_rule() {
-                            args.push(Self::parse_argument(arg)?);
+                            if let Some(argument) = Self::parse_argument(arg)? {
+                                args.push(argument);
+                            }
                         }
                     }
                 }
@@ -1180,8 +1220,10 @@ mod tests {
         let parsed = Parser::parse(input).unwrap();
         if let crate::ast::Statement::Assignment(assign) = &parsed.statements[0] {
             if let Some(crate::ast::Expression::Vector(elems, _)) = &assign.value {
-                assert_eq!(elems.len(), 3);
-                assert!(matches!(elems[1], crate::ast::Expression::Literal(crate::ast::LiteralValue::Undefined, _)));
+                // OpenSCAD drops empty elements: `echo([1,,3])` prints `[1, 3]`.
+                assert_eq!(elems.len(), 2);
+                assert!(matches!(elems[0], crate::ast::Expression::Literal(crate::ast::LiteralValue::Number(_), _)));
+                assert!(matches!(elems[1], crate::ast::Expression::Literal(crate::ast::LiteralValue::Number(_), _)));
             } else {
                 panic!("Expected Vector");
             }

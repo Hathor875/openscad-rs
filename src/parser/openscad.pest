@@ -14,11 +14,13 @@ statement = {
     | assignment
     | module_instantiation
     | if_stmt
+    | include_stmt
+    | use_directive
     | ";"
     | block
 }
 
-if_stmt = { If ~ "(" ~ expression ~ ")" ~ statement ~ (Else ~ statement)? }
+if_stmt = { modifier* ~ If ~ "(" ~ expression ~ ")" ~ statement ~ (Else ~ statement)? }
 
 block = { "{" ~ statement* ~ "}" }
 
@@ -54,7 +56,9 @@ module_id = {
 }
 
 arguments = { argument ~ ("," ~ argument)* ~ ","? }
-argument = { (identifier ~ EqSign ~ expression) | expression }
+// The trailing `expression?` tolerates stray commas in call argument lists
+// (e.g. `str(a, , b)`), matching OpenSCAD, which drops empty arguments.
+argument = { (identifier ~ EqSign ~ expression) | expression? }
 
 child_block = { block | statement | Semi }
 
@@ -231,11 +235,9 @@ exponent = { ("e" | "E") ~ ("+" | "-")? ~ digit+ }
 String = @{ "\"" ~ string_content* ~ "\"" }
 string_content = @{ ESCAPE_SEQUENCE | !("\"" | "\\") ~ ANY }
 
-ESCAPE_SEQUENCE = { "\\" ~ ESCAPE_CHAR }
-
-ESCAPE_CHAR = {
-    "n" | "t" | "r" | "\\" | "\"" | "x" ~ hex_digit ~ hex_digit | "u" ~ "{" ~ hex_digit+ ~ "}" | "U" ~ "{" ~ hex_digit+ ~ "}"
-}
+// Any escaped character is accepted; OpenSCAD drops the backslash for
+// sequences it does not special-case (`"\0"` is `"0"`, `"\q"` is `"q"`).
+ESCAPE_SEQUENCE = { "\\" ~ ANY }
 
 Ident = { IdentInner }
 IdentInner = @{
