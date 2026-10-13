@@ -61,4 +61,7 @@ pretty_assertions = "1.4"
 # The profile that 'dist' will build with
 [profile.dist]
 inherits = "release"
-lto = "thin"
+# LTO has to stay off: with MSVC, linking the cc-built manifold/tbb objects
+# through /LTCG drops their UCRT imports and the release build fails with
+# "unresolved external symbol __imp_fmin" and friends.
+lto = false
