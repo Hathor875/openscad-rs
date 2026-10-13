@@ -36,9 +36,7 @@ holes and bounds.
 
 ```sh
 cargo test
-cargo run -- model.scad -o model.stl --binary
+cargo run -- model.scad -o model.stl
 cargo run -- model.scad -o model.obj
 ```
 
-When native dependencies are not available on the host, use the
-`distrobox enter openscad-rust` command documented in `README.md`.

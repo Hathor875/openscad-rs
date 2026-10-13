@@ -1,6 +1,6 @@
 # openscad-rs
 
-[![CI](https://github.com/Hathor875/openscad-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Hathor875/openscad-rs/actions/workflows/ci.yml)
+[![CI](actions/workflows/ci.yml/badge.svg)](actions/workflows/ci.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
 An experimental Rust implementation of the OpenSCAD language and geometry
@@ -86,16 +86,6 @@ Running the binary without arguments opens the GUI (`cargo run`):
 - A graphical session (X11, Wayland, or XWayland) for the GUI; the CLI runs
   headless.
 
-The project is also tested in the development container used by this
-repository:
-
-```sh
-distrobox enter openscad-rust -- bash -lc \
-  'export PATH="/usr/local/cargo/bin:$PATH"; \
-   cd /home/krzysztofc/Project/openscad/openscad-rust; \
-   cargo test'
-```
-
 ## Build and test
 
 From the repository directory:
@@ -108,7 +98,8 @@ cargo run -- model.scad -o model.stl   # headless CLI
 ```
 
 If the host does not provide the native dependencies required by `manifold3d`,
-run the same commands through the development container shown above.
+run the same commands inside a Linux development container that has a C/C++
+toolchain and CMake.
 
 ## Continuous integration
 
