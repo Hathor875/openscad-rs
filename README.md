@@ -1,5 +1,8 @@
 # openscad-rs
 
+[![CI](https://github.com/Hathor875/openscad-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/Hathor875/openscad-rs/actions/workflows/ci.yml)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
+
 An experimental Rust implementation of the OpenSCAD language and geometry
 pipeline. The project is currently a **headless interpreter and mesh exporter**,
 not a replacement for the OpenSCAD GUI.
@@ -75,6 +78,30 @@ cargo build --release
 
 If the host does not provide the native dependencies required by `manifold3d`,
 run the same commands through the development container shown above.
+
+## Continuous integration
+
+Every push to `main` and every pull request runs [the CI
+workflow](.github/workflows/ci.yml), which gates on:
+
+| Job | What it checks |
+| --- | --- |
+| `rustfmt` | `cargo fmt --all -- --check` |
+| `clippy` | `cargo clippy --locked --all-targets -- -D warnings` |
+| `test` | `cargo test --locked --all-targets` on Linux, macOS and Windows |
+| `CLI smoke test` | every `examples/*.scad` evaluates, and the models with geometry export to ASCII STL, binary STL and OBJ with valid headers and sizes |
+
+The same checks run locally:
+
+```sh
+cargo fmt --all
+cargo clippy --locked --all-targets -- -D warnings
+cargo test --locked --all-targets
+cargo build --locked && ./scripts/ci-smoke.sh
+```
+
+The smoke test writes its exports to `out/` and accepts the binary and the
+output directory as arguments: `./scripts/ci-smoke.sh <binary> <out-dir>`.
 
 ## Command-line usage
 
