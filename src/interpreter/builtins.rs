@@ -140,9 +140,7 @@ fn builtin_atan2(args: Vec<Value>) -> Result<Value, String> {
 
 fn builtin_sqrt(args: Vec<Value>) -> Result<Value, String> {
     let nums = expect_num(&args, 1)?;
-    if nums[0] < 0.0 {
-        return Err("sqrt of negative number".into());
-    }
+    // OpenSCAD follows IEEE: sqrt(-1) is nan, not an error.
     Ok(Value::Number(nums[0].sqrt()))
 }
 
@@ -158,32 +156,22 @@ fn builtin_exp(args: Vec<Value>) -> Result<Value, String> {
 
 fn builtin_ln(args: Vec<Value>) -> Result<Value, String> {
     let nums = expect_num(&args, 1)?;
-    if nums[0] <= 0.0 {
-        return Err("ln of non-positive number".into());
-    }
+    // IEEE: ln(0) is -inf, ln(-1) is nan.
     Ok(Value::Number(nums[0].ln()))
 }
 
 fn builtin_log(args: Vec<Value>) -> Result<Value, String> {
     let nums = expect_num(&args, if args.len() == 1 { 1 } else { 2 })?;
     if args.len() == 1 {
-        if nums[0] <= 0.0 {
-            return Err("log of non-positive number".into());
-        }
-        Ok(Value::Number(nums[0].ln()))
+        Ok(Value::Number(nums[0].log10()))
     } else {
-        if nums[0] <= 0.0 || nums[1] <= 0.0 {
-            return Err("log of non-positive number".into());
-        }
-        Ok(Value::Number(nums[0].ln() / nums[1].ln()))
+        // OpenSCAD log(x, b) == ln(b)/ln(x).
+        Ok(Value::Number(nums[1].ln() / nums[0].ln()))
     }
 }
 
 fn builtin_log10(args: Vec<Value>) -> Result<Value, String> {
     let nums = expect_num(&args, 1)?;
-    if nums[0] <= 0.0 {
-        return Err("log10 of non-positive number".into());
-    }
     Ok(Value::Number(nums[0].log10()))
 }
 
@@ -499,26 +487,35 @@ fn builtin_str(args: Vec<Value>) -> Result<Value, String> {
 
 fn builtin_chr(args: Vec<Value>) -> Result<Value, String> {
     if args.len() != 1 {
-        return Err("chr expects 1 argument".into());
+        // OpenSCAD chr() with no usable argument yields the empty string.
+        return Ok(Value::String(String::new()));
     }
     match &args[0] {
         Value::Number(n) => {
-            let c = char::from_u32(*n as u32).ok_or("Invalid Unicode code point")?;
-            Ok(Value::String(c.to_string()))
+            // OpenSCAD yields the empty string for invalid code points.
+            let c = char::from_u32(*n as u32).unwrap_or('\0');
+            Ok(Value::String(if c == '\0' && *n != 0.0 {
+                String::new()
+            } else {
+                c.to_string()
+            }))
         }
         Value::Vector(v) => {
             let mut result = String::new();
             for elem in v {
                 if let Value::Number(n) = elem {
-                    let c = char::from_u32(*n as u32).ok_or("Invalid Unicode code point")?;
+                    let c = char::from_u32(*n as u32).unwrap_or('\0');
+                    if c == '\0' && *n != 0.0 {
+                        return Ok(Value::String(String::new()));
+                    }
                     result.push(c);
                 } else {
-                    return Err("chr expects vector of numbers".into());
+                    return Ok(Value::String(String::new()));
                 }
             }
             Ok(Value::String(result))
         }
-        _ => Err("chr expects a number or vector of numbers".into()),
+        _ => Ok(Value::String(String::new())),
     }
 }
 
@@ -528,7 +525,8 @@ fn builtin_ord(args: Vec<Value>) -> Result<Value, String> {
     }
     let s = args[0].as_string()?;
     if s.is_empty() {
-        return Err("ord expects a non-empty string".into());
+        // OpenSCAD ord("") is undef, not an error.
+        return Ok(Value::Undef);
     }
     let code = s.chars().next().unwrap() as u32;
     Ok(Value::Number(code as f64))

@@ -25,12 +25,19 @@ impl Parser {
     pub fn parse_file(path: impl AsRef<Path>) -> Result<SourceFile> {
         let path = path.as_ref();
         let bytes = fs::read(path)?;
-        // Some libraries ship latin-1 encoded comments or strings; degrade to
-        // replacement characters instead of failing the whole load.
-        let input = match String::from_utf8(bytes) {
-            Ok(input) => input,
-            Err(error) => String::from_utf8_lossy(error.as_bytes()).into_owned(),
-        };
+        // OpenSCAD reads UTF-8 but tolerates latin-1 sources (some libraries
+        // ship ISO-8859-1 comments/strings); map invalid bytes as latin-1
+        // instead of degrading them to replacement characters.
+        let mut input = String::from_utf8(bytes).unwrap_or_else(|error| {
+            error
+                .into_bytes()
+                .into_iter()
+                .map(|byte| byte as char)
+                .collect()
+        });
+        if input.starts_with('\u{FEFF}') {
+            input.remove(0);
+        }
         Self::parse_with_path(&input, path.to_string_lossy().into_owned())
     }
 

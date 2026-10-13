@@ -1013,8 +1013,9 @@ mod tests {
         let env = eval_source("x = ord(\"hello\");").unwrap();
         assert_eq!(env.get("x"), Some(crate::interpreter::Value::Number(104.0)));
 
-        let result = eval_source("x = ord(\"\");").unwrap_err();
-        assert!(result.contains("non-empty"));
+        // OpenSCAD: ord("") echoes undef instead of failing.
+        let env = eval_source("x = ord(\"\");").unwrap();
+        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Undef));
     }
 
     #[test]
@@ -1123,8 +1124,12 @@ mod tests {
 
     #[test]
     fn test_builtin_chr_invalid() {
-        let result = eval_source("x = chr(\"invalid\");").unwrap_err();
-        assert!(result.contains("number"));
+        // OpenSCAD chr("invalid") echoes the empty string.
+        let env = eval_source("x = chr(\"invalid\");").unwrap();
+        assert_eq!(
+            env.get("x"),
+            Some(crate::interpreter::Value::String(String::new()))
+        );
     }
 
     #[test]
@@ -1148,8 +1153,9 @@ mod tests {
 
     #[test]
     fn test_builtin_cross_invalid_dim() {
-        let result = eval_source("x = cross([1, 0], [0, 1, 2]);").unwrap_err();
-        assert!(result.contains("2D or 3D"));
+        // OpenSCAD warns about the vector size and yields undef.
+        let env = eval_source("x = cross([1, 0], [0, 1, 2]);").unwrap();
+        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Undef));
     }
 
     #[test]

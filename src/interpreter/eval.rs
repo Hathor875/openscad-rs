@@ -422,7 +422,7 @@ impl Evaluator {
         for item in items {
             let child = Environment::with_parent(self.env.clone());
             child.define(binding.name.clone(), item);
-            let mut evaluator = Evaluator::new(Rc::new(child));
+            let mut evaluator = Evaluator::with_depth(Rc::new(child), self.depth);
             if index + 1 == bindings.len() {
                 let include = match condition {
                     Some(condition) => evaluator.eval(condition)?.as_bool(),
@@ -725,13 +725,13 @@ impl Evaluator {
 
         for binding in bindings {
             if let Some(expr) = &binding.value {
-                let mut eval = Evaluator::new(new_env_rc.clone());
+                let mut eval = Evaluator::with_depth(new_env_rc.clone(), self.depth);
                 let value = eval.eval(expr)?;
                 new_env_rc.define(binding.name.clone(), value);
             }
         }
 
-        let mut eval = Evaluator::new(new_env_rc);
+        let mut eval = Evaluator::with_depth(new_env_rc, self.depth);
         eval.eval(body)
     }
 
@@ -781,7 +781,11 @@ impl Evaluator {
             } else {
                 "Assertion failed".to_string()
             };
-            return Err(msg);
+            return if msg.is_empty() || msg == "Assertion failed" {
+                Err(msg)
+            } else {
+                Err(format!("Assertion failed: {}", msg))
+            };
         }
         if let Some(body_expr) = body {
             self.eval(body_expr)
@@ -861,13 +865,8 @@ fn values_cmp(a: &Value, b: &Value) -> Option<std::cmp::Ordering> {
 fn is_tolerable(error: &str) -> bool {
     // OpenSCAD never aborts evaluation: bad builtin arguments, type
     // mismatches, assertions and runaway recursion become warnings that
-    // evaluate to `undef`. Wrong argument *types* for `ord`/`chr`/`cross`
-    // stay hard errors so bad string handling cannot silently corrupt output.
-    if error.starts_with("ord expects a non-empty")
-        || error.starts_with("chr expects a number")
-        || error.starts_with("chr expects vector")
-        || error.starts_with("cross product requires")
-    {
+    // evaluate to `undef`.
+    if crate::cancel::CANCELLED_MESSAGE == error {
         return false;
     }
     error.starts_with("Cannot convert")
@@ -883,6 +882,8 @@ fn is_tolerable(error: &str) -> bool {
         || error.starts_with("sqrt of negative")
         || error.starts_with("Range step cannot be zero")
         || error.starts_with("Invalid points list")
+        || error.starts_with("cross product requires")
+        || error.starts_with("ident size must be")
         || error.contains(" is not a function")
         // Builtin argument validation, e.g. "floor expects number ...".
         || error.contains(" expects ")

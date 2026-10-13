@@ -166,9 +166,11 @@ impl Executor {
                 return Ok(None);
             }
             if name == "for" {
-                let binding = args
-                    .first()
-                    .ok_or_else(|| "for requires a loop variable".to_string())?;
+                // OpenSCAD: for() with no binding iterates zero times.
+                let binding = match args.first() {
+                    Some(binding) => binding,
+                    None => return Ok(None),
+                };
                 let variable = binding.name.clone();
                 let values = binding
                     .value
@@ -854,9 +856,11 @@ impl Executor {
         _modifiers: &ModuleModifiers,
     ) -> Result<(), String> {
         if name == "for" {
-            let binding = arguments
-                .first()
-                .ok_or_else(|| "for requires a loop variable".to_string())?;
+            // OpenSCAD: for() with no binding iterates zero times.
+            let binding = match arguments.first() {
+                Some(binding) => binding,
+                None => return Ok(()),
+            };
             let variable = if binding.name.is_empty() {
                 return Err("for requires a named loop variable".into());
             } else {
@@ -936,9 +940,11 @@ impl Executor {
             return Ok(());
         }
         if name == "intersection_for" {
-            let binding = arguments
-                .first()
-                .ok_or_else(|| "intersection_for requires a loop variable".to_string())?;
+            // OpenSCAD: intersection_for() with no binding iterates zero times.
+            let binding = match arguments.first() {
+                Some(binding) => binding,
+                None => return Ok(()),
+            };
             let variable = if binding.name.is_empty() {
                 return Err("intersection_for requires a named loop variable".into());
             } else {
