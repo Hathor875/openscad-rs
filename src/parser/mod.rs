@@ -854,7 +854,11 @@ impl Parser {
                     return Ok(Expression::Literal(LiteralValue::Number(value), span));
                 }
                 Rule::int_number => {
-                    let value = text.parse().unwrap_or(0) as f64;
+                    let value = text
+                        .parse::<i64>()
+                        .map(|v| v as f64)
+                        .or_else(|_| text.parse::<f64>())
+                        .unwrap_or(0.0);
                     return Ok(Expression::Literal(LiteralValue::Number(value), span));
                 }
                 _ => {}

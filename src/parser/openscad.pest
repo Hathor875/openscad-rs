@@ -173,7 +173,7 @@ hex_digit = { digit | "a" | "b" | "c" | "d" | "e" | "f" | "A" | "B" | "C" | "D" 
 alpha = { "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i" | "j" | "k" | "l" | "m" | "n" | "o" | "p" | "q" | "r" | "s" | "t" | "u" | "v" | "w" | "x" | "y" | "z" | "A" | "B" | "C" | "D" | "E" | "F" | "G" | "H" | "I" | "J" | "K" | "L" | "M" | "N" | "O" | "P" | "Q" | "R" | "S" | "T" | "U" | "V" | "W" | "X" | "Y" | "Z" }
 alphanumeric = { alpha | digit }
 
-WHITESPACE = _{ " " | "\t" | "\r" | "\n" | "\u{00A0}" | "\u{2007}" | "\u{202F}" | "\u{3000}" }
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" | "\u{00A0}" | "\u{2007}" | "\u{202F}" | "\u{3000}" | "\u{FEFF}" }
 COMMENT = _{ "//" ~ (!("\n") ~ ANY)* | "/*" ~ (!("*/") ~ ANY)* ~ "*/" }
 
 // Explicit token rules matching logos token names

@@ -568,20 +568,59 @@ impl Evaluator {
             .transpose()?
             .unwrap_or(1.0);
 
+        if start.is_nan() || end.is_nan() || step.is_nan() {
+            return Ok(Value::Vector(Vec::new()));
+        }
+
         if step == 0.0 {
             return Err("Range step cannot be zero".into());
         }
 
-        let mut values = Vec::new();
+        if (step > 0.0 && start > end) || (step < 0.0 && start < end) {
+            return Ok(Value::Vector(Vec::new()));
+        }
+
+        if start == end {
+            return Ok(Value::Vector(vec![Value::Number(start)]));
+        }
+
+        if step.is_infinite() {
+            return Ok(Value::Vector(vec![Value::Number(start)]));
+        }
+
+        if start.is_infinite() || end.is_infinite() {
+            return Err(
+                "Bad range parameter in for statement: too many elements (4294967295)".into(),
+            );
+        }
+
+        const MAX_RANGE_STEPS: f64 = 1_000_000.0;
+        let num_steps = ((end - start) / step).floor();
+        if num_steps < 0.0 {
+            return Ok(Value::Vector(Vec::new()));
+        }
+        if num_steps >= MAX_RANGE_STEPS {
+            return Err(format!(
+                "Bad range parameter in for statement: too many elements ({})",
+                if num_steps >= u32::MAX as f64 {
+                    u32::MAX
+                } else {
+                    num_steps as u32 + 1
+                }
+            ));
+        }
+
+        let count = num_steps as usize + 1;
+        let mut values = Vec::with_capacity(count);
         let mut current = start;
 
         if step > 0.0 {
-            while current <= end + 1e-10 {
+            while current <= end + 1e-10 && values.len() <= count {
                 values.push(Value::Number(current));
                 current += step;
             }
         } else {
-            while current >= end - 1e-10 {
+            while current >= end - 1e-10 && values.len() <= count {
                 values.push(Value::Number(current));
                 current += step;
             }
@@ -881,6 +920,7 @@ fn is_tolerable(error: &str) -> bool {
         || error.starts_with("Vector has no field")
         || error.starts_with("sqrt of negative")
         || error.starts_with("Range step cannot be zero")
+        || error.starts_with("Bad range parameter")
         || error.starts_with("Invalid points list")
         || error.starts_with("cross product requires")
         || error.starts_with("ident size must be")

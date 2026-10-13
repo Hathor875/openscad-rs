@@ -1312,6 +1312,48 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_range_infinite_and_huge_warns_and_degrades() {
+        // [0:inf] or huge step count must warn and degrade to undef instead of OOM
+        let env = eval_source(
+            "
+            inf = 1/0;
+            v = [for (i = [0:inf]) i];
+            w = [for (i = [0:1:4294967296]) i];
+        ",
+        )
+        .unwrap();
+        assert_eq!(
+            env.get("v"),
+            Some(crate::interpreter::Value::Vector(vec![]))
+        );
+        assert_eq!(
+            env.get("w"),
+            Some(crate::interpreter::Value::Vector(vec![]))
+        );
+    }
+
+    #[test]
+    fn test_range_nan_step_evaluates_empty() {
+        let env = eval_source(
+            "
+            nan = 0/0;
+            v = [for (i = [0:nan:0]) i];
+        ",
+        )
+        .unwrap();
+        assert_eq!(
+            env.get("v"),
+            Some(crate::interpreter::Value::Vector(vec![]))
+        );
+    }
+
+    #[test]
+    fn test_whitespace_zero_width_nbsp() {
+        let env = eval_source("a\u{FEFF}=\u{FEFF}42;").unwrap();
+        assert_eq!(env.get("a"), Some(crate::interpreter::Value::Number(42.0)));
+    }
+
     fn unique_fixture_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("openscad-rust-{}-{}", name, std::process::id()))
     }
