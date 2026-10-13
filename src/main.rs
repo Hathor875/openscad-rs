@@ -791,6 +791,7 @@ impl eframe::App for OpenScadApp {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_mesh_2d(
     painter: &egui::Painter,
     mesh: &MeshData,
@@ -1769,7 +1770,7 @@ fn run_compare_cli(args: &[String]) -> Result<(), String> {
     }
 
     let path_a = args
-        .get(0)
+        .first()
         .ok_or_else(|| usage_error("missing first model path"))?;
     let path_b = args
         .get(1)

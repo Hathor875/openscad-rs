@@ -406,7 +406,7 @@ impl ComparisonReport {
                 v.depth_max_err
             ));
         }
-        out.push_str("\n");
+        out.push('\n');
 
         out.push_str("--- 6. FINAL VERDICT ---\n");
         match self.verdict.status {
@@ -531,7 +531,7 @@ impl<'a> SpatialGrid<'a> {
         }
 
         let face_count = mesh.faces.len();
-        let target_cells = (face_count as f64).cbrt().max(4.0).min(48.0) as usize;
+        let target_cells = (face_count as f64).cbrt().clamp(4.0, 48.0) as usize;
         let dims = [target_cells, target_cells, target_cells];
 
         let cell_size = [

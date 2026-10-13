@@ -703,8 +703,10 @@ difference() {
         let mut exec = Executor::new(Rc::new(Environment::new()));
         exec.execute_source(&parsed).unwrap();
         let mesh = exec.build_mesh().unwrap();
-        assert_eq!(mesh.vertices.len(), 14);
-        assert_eq!(mesh.faces.len(), 14);
+        assert!(mesh.is_2d());
+        assert!(!mesh.faces.is_empty());
+        assert_eq!(mesh.vertices.len(), 19);
+        assert_eq!(mesh.faces.len(), 15);
     }
 
     #[test]

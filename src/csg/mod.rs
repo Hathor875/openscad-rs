@@ -1,6 +1,23 @@
 // Simple CSG module using mesh representation
 // Uses nalgebra for math, outputs to OBJ/STL
 
+/// Longest miter `offset()` may produce, as a multiple of `|delta|`.
+/// OpenSCAD fixes its own miter limit to 1e6 (`OffsetNode.h`) and relies on
+/// Clipper to clean the resulting self-intersections; we have no such cleanup,
+/// so a finite limit is what keeps sharp corners from folding the polygon
+/// over itself.
+const MITER_LIMIT: f64 = 4.0;
+
+/// Signed area of a closed loop; positive when counter-clockwise.
+fn signed_area(pts: &[[f64; 2]]) -> f64 {
+    let mut area = 0.0;
+    for i in 0..pts.len() {
+        let next = (i + 1) % pts.len();
+        area += pts[i][0] * pts[next][1] - pts[next][0] * pts[i][1];
+    }
+    area * 0.5
+}
+
 use manifold3d::Manifold;
 use nalgebra::Matrix4;
 
@@ -1018,6 +1035,16 @@ impl Mesh {
         mesh_2d
     }
 
+    /// Offsets every boundary loop of a 2D mesh by `delta`.
+    ///
+    /// `delta > 0` grows solid areas and shrinks holes, `delta < 0` does the
+    /// opposite. `r` rounds convex corners, `chamfer` cuts them flat.
+    ///
+    /// Corners whose miter would run longer than `MITER_LIMIT * |delta|` are
+    /// bevelled instead: an unlimited miter spikes `|delta| / sin(angle/2)`
+    /// long, and on erosion those spikes cross each other, which used to
+    /// produce a folded-over polygon that was then thrown away - so a shape
+    /// like a keycap roof came out with no icon groove at all.
     pub fn offset(&self, delta: f64, r: f64, chamfer: bool) -> Mesh {
         if self.faces.is_empty() || self.vertices.is_empty() {
             return Mesh::new();
@@ -1027,71 +1054,88 @@ impl Mesh {
             return self.clone();
         }
 
-        let mut edge_counts = std::collections::HashMap::new();
+        // Boundary edges in a deterministic order. Hash iteration order used
+        // to pick where each loop starts, which made the whole result depend
+        // on the random seed of the process.
+        let mut edge_counts: std::collections::HashMap<(usize, usize), u32> =
+            std::collections::HashMap::new();
+        let mut directed: Vec<(usize, usize)> = Vec::new();
         for face in &self.faces {
             for k in 0..3 {
                 let u = face[k];
                 let v = face[(k + 1) % 3];
                 let key = if u < v { (u, v) } else { (v, u) };
-                *edge_counts.entry(key).or_insert(0) += 1;
-            }
-        }
-
-        let mut next_vertex = std::collections::HashMap::new();
-        for face in &self.faces {
-            for k in 0..3 {
-                let u = face[k];
-                let v = face[(k + 1) % 3];
-                let key = if u < v { (u, v) } else { (v, u) };
-                if edge_counts.get(&key) == Some(&1) {
-                    next_vertex.insert(u, v);
+                let count = edge_counts.entry(key).or_insert(0);
+                *count += 1;
+                if *count == 1 {
+                    directed.push((u, v));
                 }
             }
         }
-
-        if next_vertex.is_empty() {
+        directed.retain(|(u, v)| edge_counts[&if u < v { (*u, *v) } else { (*v, *u) }] == 1);
+        directed.sort_unstable();
+        if directed.is_empty() {
             return self.clone();
         }
 
-        let mut loops = Vec::new();
-        while let Some(&start) = next_vertex.keys().next() {
-            let mut current = start;
-            let mut poly_loop = Vec::new();
-            while let Some(next) = next_vertex.remove(&current) {
-                poly_loop.push(current);
-                current = next;
-                if current == start {
+        let mut outgoing: std::collections::BTreeMap<usize, std::collections::BTreeSet<usize>> =
+            std::collections::BTreeMap::new();
+        for &(u, v) in &directed {
+            outgoing.entry(u).or_default().insert(v);
+        }
+        let mut pending: std::collections::BTreeSet<(usize, usize)> = outgoing
+            .iter()
+            .flat_map(|(u, vs)| vs.iter().map(move |v| (*u, *v)))
+            .collect();
+
+        let mut loops: Vec<Vec<usize>> = Vec::new();
+        while let Some(&start_edge) = pending.iter().next() {
+            let start = start_edge.0;
+            let mut poly: Vec<usize> = Vec::new();
+            let mut edge = start_edge;
+            loop {
+                if !pending.remove(&edge) {
                     break;
                 }
+                poly.push(edge.0);
+                let next = match outgoing
+                    .get(&edge.1)
+                    .and_then(|vs| vs.iter().copied().find(|&v| pending.contains(&(edge.1, v))))
+                {
+                    Some(v) => (edge.1, v),
+                    None => break,
+                };
+                if next.1 == start {
+                    poly.push(next.0);
+                    break;
+                }
+                edge = next;
             }
-            if poly_loop.len() >= 3 {
-                loops.push(poly_loop);
+            if poly.len() >= 3 {
+                loops.push(poly);
             }
         }
 
-        let mut all_points_2d = Vec::new();
-        let mut all_paths = Vec::new();
+        let mut all_points_2d: Vec<[f64; 2]> = Vec::new();
+        let mut all_paths: Vec<Vec<usize>> = Vec::new();
 
         for poly_indices in loops {
-            let mut pts: Vec<[f64; 2]> = poly_indices
+            let pts: Vec<[f64; 2]> = poly_indices
                 .iter()
                 .map(|&idx| [self.vertices[idx][0], self.vertices[idx][1]])
                 .collect();
-
-            let mut area = 0.0;
             let n = pts.len();
-            for i in 0..n {
-                let next = (i + 1) % n;
-                area += pts[i][0] * pts[next][1] - pts[next][0] * pts[i][1];
-            }
-            area *= 0.5;
 
-            let is_ccw = area > 0.0;
-            if !is_ccw {
-                pts.reverse();
+            let area = signed_area(&pts);
+            if area.abs() < 1e-9 {
+                continue;
             }
+            // Outward normal: to the right of a CCW loop, to the left of a
+            // CW (hole) loop. Keeping the original orientation is what lets
+            // offset() grow a shape without eating its holes.
+            let orientation = if area > 0.0 { 1.0 } else { -1.0 };
 
-            let mut lines = Vec::with_capacity(n);
+            let mut normals: Vec<[f64; 2]> = Vec::with_capacity(n);
             for i in 0..n {
                 let p1 = pts[i];
                 let p2 = pts[(i + 1) % n];
@@ -1099,77 +1143,86 @@ impl Mesh {
                 let dy = p2[1] - p1[1];
                 let len = (dx * dx + dy * dy).sqrt();
                 if len < 1e-9 {
+                    let fallback = normals.last().copied().unwrap_or([orientation, 0.0]);
+                    normals.push(fallback);
                     continue;
                 }
-                let nx = dy / len;
-                let ny = -dx / len;
-                let c = nx * p1[0] + ny * p1[1] + d;
-                lines.push((nx, ny, c, p1, p2, len));
+                normals.push([orientation * dy / len, -orientation * dx / len]);
             }
 
-            if lines.len() < 3 {
+            let mut new_pts: Vec<[f64; 2]> = Vec::with_capacity(n);
+            for i in 0..n {
+                let prev = (i + n - 1) % n;
+                let vertex = pts[i];
+                let n_prev = normals[prev];
+                let n_curr = normals[i];
+                let a = [vertex[0] + d * n_prev[0], vertex[1] + d * n_prev[1]];
+                let b = [vertex[0] + d * n_curr[0], vertex[1] + d * n_curr[1]];
+
+                let next_vertex = pts[(i + 1) % n];
+                let turn = ((vertex[0] - pts[prev][0]) * (next_vertex[1] - vertex[1])
+                    - (vertex[1] - pts[prev][1]) * (next_vertex[0] - vertex[0]))
+                    * orientation;
+                let is_convex = turn > 0.0;
+
+                let bisector = [n_prev[0] + n_curr[0], n_prev[1] + n_curr[1]];
+                let bis_len = (bisector[0] * bisector[0] + bisector[1] * bisector[1]).sqrt();
+                let cos_half = if bis_len > 1e-12 {
+                    (bisector[0] * n_curr[0] + bisector[1] * n_curr[1]) / bis_len
+                } else {
+                    0.0
+                };
+
+                if r > 0.0 && is_convex && d > 0.0 {
+                    let start_angle = n_prev[1].atan2(n_prev[0]);
+                    let mut end_angle = n_curr[1].atan2(n_curr[0]);
+                    while end_angle < start_angle {
+                        end_angle += 2.0 * std::f64::consts::PI;
+                    }
+                    let steps = 4;
+                    for s in 0..=steps {
+                        let t = s as f64 / steps as f64;
+                        let ang = start_angle + t * (end_angle - start_angle);
+                        new_pts.push([vertex[0] + r * ang.cos(), vertex[1] + r * ang.sin()]);
+                    }
+                } else if cos_half.abs() < 1e-6
+                    || (chamfer && is_convex && d > 0.0)
+                    || cos_half < 1.0 / MITER_LIMIT
+                {
+                    new_pts.push(a);
+                    new_pts.push(b);
+                } else {
+                    let scale = d / cos_half;
+                    new_pts.push([
+                        vertex[0] + bisector[0] / bis_len * scale,
+                        vertex[1] + bisector[1] / bis_len * scale,
+                    ]);
+                }
+            }
+
+            new_pts.dedup_by(|p, q| (p[0] - q[0]).abs() < 1e-12 && (p[1] - q[1]).abs() < 1e-12);
+            if new_pts.len() < 3 || signed_area(&new_pts).abs() < 1e-9 {
                 continue;
             }
 
-            let num_lines = lines.len();
-            let mut new_pts = Vec::new();
-
-            for i in 0..num_lines {
-                let prev_idx = (i + num_lines - 1) % num_lines;
-                let l_prev = lines[prev_idx];
-                let l_curr = lines[i];
-
-                let det = l_prev.0 * l_curr.1 - l_prev.1 * l_curr.0;
-                let is_convex_turn = det < -1e-7;
-
-                if det.abs() > 1e-9 {
-                    let inter_x = (l_prev.2 * l_curr.1 - l_prev.1 * l_curr.2) / det;
-                    let inter_y = (l_prev.0 * l_curr.2 - l_prev.2 * l_curr.0) / det;
-
-                    if r > 0.0 && is_convex_turn && d > 0.0 {
-                        let pt = l_curr.3;
-                        let start_angle = l_prev.1.atan2(l_prev.0);
-                        let mut end_angle = l_curr.1.atan2(l_curr.0);
-                        if end_angle < start_angle {
-                            end_angle += 2.0 * std::f64::consts::PI;
-                        }
-                        let steps = 4;
-                        for s in 0..=steps {
-                            let t = s as f64 / steps as f64;
-                            let ang = start_angle + t * (end_angle - start_angle);
-                            new_pts.push([pt[0] + r * ang.cos(), pt[1] + r * ang.sin()]);
-                        }
-                    } else if chamfer && is_convex_turn && d > 0.0 {
-                        let pt = l_curr.3;
-                        new_pts.push([pt[0] + d * l_prev.0, pt[1] + d * l_prev.1]);
-                        new_pts.push([pt[0] + d * l_curr.0, pt[1] + d * l_curr.1]);
-                    } else {
-                        new_pts.push([inter_x, inter_y]);
-                    }
-                } else {
-                    new_pts.push(pts[i]);
-                }
-            }
-
-            let mut new_area = 0.0;
-            let m = new_pts.len();
-            for i in 0..m {
-                let next = (i + 1) % m;
-                new_area += new_pts[i][0] * new_pts[next][1] - new_pts[next][0] * new_pts[i][1];
-            }
-            new_area *= 0.5;
-
-            if new_area > 1e-4 {
-                let start_idx = all_points_2d.len();
-                let path: Vec<usize> = (start_idx..start_idx + new_pts.len()).collect();
-                all_points_2d.extend(new_pts);
-                all_paths.push(path);
-            }
+            let start_idx = all_points_2d.len();
+            let path: Vec<usize> = (start_idx..start_idx + new_pts.len()).collect();
+            all_points_2d.extend(new_pts);
+            all_paths.push(path);
         }
 
         if all_paths.is_empty() {
             return Mesh::new();
         }
+
+        // Outer loop first, holes after it.
+        all_paths.sort_by(|a, b| {
+            let area_a =
+                signed_area(&a.iter().map(|&i| all_points_2d[i]).collect::<Vec<_>>()).abs();
+            let area_b =
+                signed_area(&b.iter().map(|&i| all_points_2d[i]).collect::<Vec<_>>()).abs();
+            area_b.total_cmp(&area_a)
+        });
 
         let (polygon_points, faces) =
             Primitive::triangulate_polygon_paths(&all_points_2d, &all_paths);
@@ -1489,6 +1542,18 @@ impl Primitive {
             }
         }
         triangles.push([remaining[0], remaining[1], remaining[2]]);
+
+        // Collinear neighbours (e.g. the miter spikes offset() puts on a
+        // mitred corner) yield zero-area triangles. Manifold rejects a mesh
+        // that contains one, which used to make the whole 2D boolean return
+        // an empty mesh, so drop them - the area they cover is zero anyway.
+        let eps = 1e-12;
+        triangles.retain(|t| {
+            let a = points[t[0]];
+            let b = points[t[1]];
+            let c = points[t[2]];
+            ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs() > eps
+        });
         triangles
     }
 
