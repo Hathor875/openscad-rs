@@ -403,13 +403,10 @@ impl Evaluator {
         values: &mut Vec<Value>,
     ) -> Result<(), String> {
         let binding = &bindings[index];
-        if binding.name.is_empty() {
-            return Err("for binding requires a variable name".into());
-        }
         let iterable = binding
             .value
             .as_ref()
-            .ok_or_else(|| format!("for binding '{}' requires an expression", binding.name))?;
+            .ok_or_else(|| "for binding requires an expression".to_string())?;
         let iterable = self.eval(iterable)?;
         let items = match iterable {
             Value::Vector(items) => items,
@@ -421,7 +418,9 @@ impl Evaluator {
 
         for item in items {
             let child = Environment::with_parent(self.env.clone());
-            child.define(binding.name.clone(), item);
+            if !binding.name.is_empty() {
+                child.define(binding.name.clone(), item);
+            }
             let mut evaluator = Evaluator::with_depth(Rc::new(child), self.depth);
             if index + 1 == bindings.len() {
                 let include = match condition {

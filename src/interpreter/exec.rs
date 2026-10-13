@@ -185,7 +185,9 @@ impl Executor {
                 };
                 for value in values {
                     let loop_env = Environment::with_parent(self.env.clone());
-                    loop_env.define(variable.clone(), value);
+                    if !variable.is_empty() {
+                        loop_env.define(variable.clone(), value);
+                    }
                     let mut loop_exec = Executor::with_depth(
                         Rc::new(loop_env),
                         self.source_stack.clone(),
@@ -329,6 +331,18 @@ impl Executor {
                 return Ok(());
             }
         };
+        if let Some(ext) = resolved.extension().and_then(|e| e.to_str()) {
+            let ext_lower = ext.to_ascii_lowercase();
+            if ext_lower == "ttf"
+                || ext_lower == "otf"
+                || ext_lower == "ttc"
+                || ext_lower == "woff"
+                || ext_lower == "woff2"
+            {
+                // OpenSCAD registers fonts without parsing them as SCAD code.
+                return Ok(());
+            }
+        }
         let source = Self::cached_parse(&resolved)?;
 
         if include_body {
@@ -861,11 +875,7 @@ impl Executor {
                 Some(binding) => binding,
                 None => return Ok(()),
             };
-            let variable = if binding.name.is_empty() {
-                return Err("for requires a named loop variable".into());
-            } else {
-                binding.name.clone()
-            };
+            let variable = binding.name.clone();
             let values = binding
                 .value
                 .as_ref()
@@ -873,11 +883,15 @@ impl Executor {
                 .and_then(|expr| self.eval_expr(expr))?;
             let values = match values {
                 Value::Vector(values) => values,
+                // OpenSCAD skips `undef` bindings and iterates scalars once.
+                Value::Undef => Vec::new(),
                 value => vec![value],
             };
             for value in values {
                 let loop_env = Environment::with_parent(self.env.clone());
-                loop_env.define(variable.clone(), value);
+                if !variable.is_empty() {
+                    loop_env.define(variable.clone(), value);
+                }
                 let mut loop_exec = Executor::with_depth(
                     Rc::new(loop_env),
                     self.source_stack.clone(),
@@ -945,11 +959,7 @@ impl Executor {
                 Some(binding) => binding,
                 None => return Ok(()),
             };
-            let variable = if binding.name.is_empty() {
-                return Err("intersection_for requires a named loop variable".into());
-            } else {
-                binding.name.clone()
-            };
+            let variable = binding.name.clone();
             let values = binding
                 .value
                 .as_ref()
@@ -957,12 +967,16 @@ impl Executor {
                 .and_then(|expression| self.eval_expr(expression))?;
             let values = match values {
                 Value::Vector(values) => values,
+                // OpenSCAD skips `undef` bindings and iterates scalars once.
+                Value::Undef => Vec::new(),
                 value => vec![value],
             };
             let mut accumulated: Option<CsgBuilder> = None;
             for value in values {
                 let loop_env = Environment::with_parent(self.env.clone());
-                loop_env.define(variable.clone(), value);
+                if !variable.is_empty() {
+                    loop_env.define(variable.clone(), value);
+                }
                 let mut loop_exec = Executor::with_depth(
                     Rc::new(loop_env),
                     self.source_stack.clone(),

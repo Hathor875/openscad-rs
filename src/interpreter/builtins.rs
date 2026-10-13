@@ -540,8 +540,20 @@ fn builtin_rands(args: Vec<Value>) -> Result<Value, String> {
     let max = args[1].as_number()?;
     let count = args[2].as_number()?;
 
+    if count.is_nan() || count <= 0.0 {
+        return Ok(Value::Vector(Vec::new()));
+    }
+    let count = if count.is_infinite() || count > 1_000_000.0 {
+        1
+    } else {
+        count.trunc() as usize
+    };
+
     let mut state: u64 = if args.len() == 4 {
-        args[3].as_number()? as u64
+        match args[3].as_number() {
+            Ok(s) if s.is_finite() => s as i64 as u64,
+            _ => 123456789u64,
+        }
     } else {
         123456789u64
     };
@@ -553,11 +565,14 @@ fn builtin_rands(args: Vec<Value>) -> Result<Value, String> {
         (*state).wrapping_mul(0x2545f4914f6cdd1d)
     }
 
-    let count = count.trunc().max(0.0) as usize;
-    let mut result = Vec::new();
+    let mut result = Vec::with_capacity(count);
     for _ in 0..count {
         let r = xorshift64(&mut state) as f64 / (u64::MAX as f64);
-        let value = min + r * (max - min);
+        let value = if min == max {
+            min
+        } else {
+            min + r * (max - min)
+        };
         result.push(Value::Number(value));
     }
     Ok(Value::Vector(result))
