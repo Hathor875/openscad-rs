@@ -144,8 +144,8 @@ brew install --formula https://github.com/Hathor875/openscad-rs/releases/latest/
 npx openscad-rust model.scad -o model.stl
 ```
 
-On Windows, download and run the `.msi` from the release page. Portable
-`.zip` and `.tar.xz` archives are available for every platform.
+Windows binaries are not published yet. Portable `.tar.xz` archives are
+attached for every published platform.
 
 Running the GUI on Linux needs the usual desktop libraries present:
 `libgtk-3`, `libwayland-client`, `libxkbcommon` and `libGL`. The CLI has no
