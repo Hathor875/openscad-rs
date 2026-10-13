@@ -1,8 +1,8 @@
-use crate::ast::{Expression, ModuleModifiers, Statement};
-use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::rc::Rc;
+use std::cell::RefCell;
+use crate::ast::{Expression, Statement, ModuleModifiers};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Value {
@@ -87,22 +87,8 @@ impl Environment {
         vars.insert("$preview".to_string(), Value::Bool(false));
         vars.insert("$t".to_string(), Value::Number(0.0));
         vars.insert("$layer_height".to_string(), Value::Number(0.2));
-        vars.insert(
-            "$vpr".to_string(),
-            Value::Vector(vec![
-                Value::Number(0.0),
-                Value::Number(0.0),
-                Value::Number(0.0),
-            ]),
-        );
-        vars.insert(
-            "$vpt".to_string(),
-            Value::Vector(vec![
-                Value::Number(0.0),
-                Value::Number(0.0),
-                Value::Number(0.0),
-            ]),
-        );
+        vars.insert("$vpr".to_string(), Value::Vector(vec![Value::Number(0.0), Value::Number(0.0), Value::Number(0.0)]));
+        vars.insert("$vpt".to_string(), Value::Vector(vec![Value::Number(0.0), Value::Number(0.0), Value::Number(0.0)]));
         vars.insert("$vpd".to_string(), Value::Number(500.0));
         vars.insert("$vpf".to_string(), Value::Number(22.5));
         vars.insert("$children".to_string(), Value::Number(0.0));
@@ -226,9 +212,7 @@ impl fmt::Display for Value {
             Value::Vector(v) => {
                 write!(f, "[")?;
                 for (i, val) in v.iter().enumerate() {
-                    if i > 0 {
-                        write!(f, ", ")?;
-                    }
+                    if i > 0 { write!(f, ", ")?; }
                     write!(f, "{}", val)?;
                 }
                 write!(f, "]")
