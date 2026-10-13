@@ -31,5 +31,20 @@ egui-wgpu = "0.36"
 winit = "0.30"
 rfd = "0.14"
 
+# eframe 0.24.1 declares winapi on Windows without the features its own
+# sources need, so Windows builds fail with "no `winuser` in `um`". Enabling
+# them here unifies the features for the whole graph. Can be dropped once
+# eframe is upgraded.
+[target.'cfg(windows)'.dependencies]
+winapi = { version = "0.3.9", features = [
+    "commctrl",
+    "errhandlingapi",
+    "libloaderapi",
+    "shellapi",
+    "windef",
+    "winreg",
+    "winuser",
+] }
+
 [dev-dependencies]
 pretty_assertions = "1.4"

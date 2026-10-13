@@ -3071,6 +3071,7 @@ dependencies = [
  "serde_json",
  "text-size",
  "thiserror 1.0.69",
+ "winapi",
  "winit 0.30.13",
 ]
 
