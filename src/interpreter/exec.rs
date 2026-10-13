@@ -1,11 +1,11 @@
-use std::rc::Rc;
-use crate::ast::{Statement, Assignment, Expression, ModuleModifiers};
-use crate::interpreter::value::{Value, Environment, ModuleValue};
+use crate::ast::{Assignment, Expression, ModuleModifiers, Statement};
+use crate::csg::{CsgBuilder, Primitive};
 use crate::interpreter::eval::Evaluator;
-use crate::csg::{Primitive, CsgBuilder};
+use crate::interpreter::value::{Environment, ModuleValue, Value};
 use anyhow::Result;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 pub struct Executor {
     pub env: Rc<Environment>,
@@ -26,7 +26,11 @@ impl Executor {
         }
     }
 
-    pub fn with_context(env: Rc<Environment>, source_stack: Vec<PathBuf>, loading: HashSet<PathBuf>) -> Self {
+    pub fn with_context(
+        env: Rc<Environment>,
+        source_stack: Vec<PathBuf>,
+        loading: HashSet<PathBuf>,
+    ) -> Self {
         Self {
             env,
             csg_stack: vec![crate::csg::CsgBuilder::new()],
@@ -36,7 +40,12 @@ impl Executor {
         }
     }
 
-    pub fn with_depth(env: Rc<Environment>, source_stack: Vec<PathBuf>, loading: HashSet<PathBuf>, depth: usize) -> Self {
+    pub fn with_depth(
+        env: Rc<Environment>,
+        source_stack: Vec<PathBuf>,
+        loading: HashSet<PathBuf>,
+        depth: usize,
+    ) -> Self {
         Self {
             env,
             csg_stack: vec![crate::csg::CsgBuilder::new()],
@@ -45,7 +54,6 @@ impl Executor {
             depth,
         }
     }
-
 
     pub fn execute_source(&mut self, source: &crate::ast::SourceFile) -> Result<(), String> {
         let path = if source.path.is_empty() {
@@ -75,15 +83,19 @@ impl Executor {
                     self.exec_assignment(assign)?;
                 }
             }
-            source.statements.iter()
-                .filter(|stmt| !matches!(
-                    stmt,
-                    Statement::Assignment(_)
-                        | Statement::ModuleDef { .. }
-                        | Statement::FunctionDef { .. }
-                        | Statement::Include(_, _)
-                        | Statement::Use(_, _)
-                ))
+            source
+                .statements
+                .iter()
+                .filter(|stmt| {
+                    !matches!(
+                        stmt,
+                        Statement::Assignment(_)
+                            | Statement::ModuleDef { .. }
+                            | Statement::FunctionDef { .. }
+                            | Statement::Include(_, _)
+                            | Statement::Use(_, _)
+                    )
+                })
                 .try_for_each(|stmt| self.execute(stmt).map(|_| ()))
         })();
 
@@ -95,18 +107,24 @@ impl Executor {
     }
 
     pub fn build_mesh(&self) -> Option<crate::csg::Mesh> {
-        self.csg_stack.first()
+        self.csg_stack
+            .first()
             .and_then(|builder| builder.clone().build())
             .map(|node| node.to_mesh())
     }
-    
+
     fn current_builder(&mut self) -> &mut crate::csg::CsgBuilder {
         self.csg_stack.last_mut().unwrap()
     }
 
     fn child_nodes(&mut self, children: &[Statement]) -> Result<Vec<crate::csg::CsgNode>, String> {
         let child_env = Environment::with_parent(self.env.clone());
-        let mut child_exec = Executor::with_depth(Rc::new(child_env), self.source_stack.clone(), self.loading.clone(), self.depth + 1);
+        let mut child_exec = Executor::with_depth(
+            Rc::new(child_env),
+            self.source_stack.clone(),
+            self.loading.clone(),
+            self.depth + 1,
+        );
 
         let mut nodes = Vec::new();
         for child in children {
@@ -130,7 +148,13 @@ impl Executor {
             }
             return Ok(None);
         }
-        if let Statement::ModuleInstantiation { name, args, children, .. } = stmt {
+        if let Statement::ModuleInstantiation {
+            name,
+            args,
+            children,
+            ..
+        } = stmt
+        {
             if name == "children" {
                 for child in forwarded {
                     self.execute(child)?;
@@ -138,9 +162,13 @@ impl Executor {
                 return Ok(None);
             }
             if name == "for" {
-                let binding = args.first().ok_or_else(|| "for requires a loop variable".to_string())?;
+                let binding = args
+                    .first()
+                    .ok_or_else(|| "for requires a loop variable".to_string())?;
                 let variable = binding.name.clone();
-                let values = binding.value.as_ref()
+                let values = binding
+                    .value
+                    .as_ref()
                     .ok_or_else(|| "for requires an iterable expression".to_string())
                     .and_then(|expr| self.eval_expr(expr))?;
                 let values = match values {
@@ -152,12 +180,22 @@ impl Executor {
                 for value in values {
                     let loop_env = Environment::with_parent(self.env.clone());
                     loop_env.define(variable.clone(), value);
-                    let mut loop_exec = Executor::with_depth(Rc::new(loop_env), self.source_stack.clone(), self.loading.clone(), self.depth + 1);
+                    let mut loop_exec = Executor::with_depth(
+                        Rc::new(loop_env),
+                        self.source_stack.clone(),
+                        self.loading.clone(),
+                        self.depth + 1,
+                    );
 
                     for child in children {
                         loop_exec.execute_with_forwarded_children(child, forwarded)?;
                     }
-                    if let Some(node) = loop_exec.csg_stack.into_iter().next().and_then(|builder| builder.build()) {
+                    if let Some(node) = loop_exec
+                        .csg_stack
+                        .into_iter()
+                        .next()
+                        .and_then(|builder| builder.build())
+                    {
                         self.current_builder().union(node);
                     }
                 }
@@ -169,33 +207,50 @@ impl Executor {
 
     fn contains_children_call(statements: &[Statement]) -> bool {
         statements.iter().any(|stmt| match stmt {
-            Statement::ModuleInstantiation { name, children, .. } =>
-                name == "children" || Self::contains_children_call(children),
+            Statement::ModuleInstantiation { name, children, .. } => {
+                name == "children" || Self::contains_children_call(children)
+            }
             Statement::Block { statements, .. } => Self::contains_children_call(statements),
-            Statement::If { then_branch, else_branch, .. } =>
+            Statement::If {
+                then_branch,
+                else_branch,
+                ..
+            } => {
                 Self::contains_children_call(std::slice::from_ref(then_branch))
                     || else_branch.as_deref().is_some_and(|branch| {
                         Self::contains_children_call(std::slice::from_ref(branch))
-                    }),
+                    })
+            }
             _ => false,
         })
     }
-    
+
     pub fn execute(&mut self, stmt: &Statement) -> Result<Option<Value>, String> {
         match stmt {
             Statement::Assignment(assign) => self.exec_assignment(assign).map(|_| None),
-            Statement::ModuleInstantiation { name, args, children, modifiers, .. } => {
-                self.exec_module_inst(name, args, children, modifiers).map(|_| None)
-            }
-            Statement::ModuleDef { name, params, body, .. } => {
-                self.exec_module_def(name, params, body, &ModuleModifiers::default()).map(|_| None)
-            }
-            Statement::FunctionDef { name, params, body, .. } => {
-                self.exec_function_def(name, params, body).map(|_| None)
-            }
-            Statement::If { condition, then_branch, else_branch, .. } => {
-                self.exec_if(condition, then_branch, else_branch.as_deref())
-            }
+            Statement::ModuleInstantiation {
+                name,
+                args,
+                children,
+                modifiers,
+                ..
+            } => self
+                .exec_module_inst(name, args, children, modifiers)
+                .map(|_| None),
+            Statement::ModuleDef {
+                name, params, body, ..
+            } => self
+                .exec_module_def(name, params, body, &ModuleModifiers::default())
+                .map(|_| None),
+            Statement::FunctionDef {
+                name, params, body, ..
+            } => self.exec_function_def(name, params, body).map(|_| None),
+            Statement::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => self.exec_if(condition, then_branch, else_branch.as_deref()),
             Statement::Block { statements, .. } => {
                 for stmt in statements {
                     self.execute(stmt)?;
@@ -210,10 +265,14 @@ impl Executor {
     fn hoist_definitions(&mut self, statements: &[Statement]) -> Result<(), String> {
         for stmt in statements {
             match stmt {
-                Statement::ModuleDef { name, params, body, .. } => {
+                Statement::ModuleDef {
+                    name, params, body, ..
+                } => {
                     self.exec_module_def(name, params, body, &ModuleModifiers::default())?;
                 }
-                Statement::FunctionDef { name, params, body, .. } => {
+                Statement::FunctionDef {
+                    name, params, body, ..
+                } => {
                     self.exec_function_def(name, params, body)?;
                 }
                 Statement::Block { statements, .. } => {
@@ -230,7 +289,11 @@ impl Executor {
             Ok(resolved) => resolved,
             Err(_) => {
                 // OpenSCAD treats missing include/library files as a non-fatal warning.
-                let kind = if include_body { "include file" } else { "library" };
+                let kind = if include_body {
+                    "include file"
+                } else {
+                    "library"
+                };
                 eprintln!("WARNING: Can't open {} '{}'.", kind, path);
                 return Ok(());
             }
@@ -317,7 +380,7 @@ impl Executor {
         path.canonicalize()
             .map_err(|error| format!("Cannot resolve source file '{}': {}", path.display(), error))
     }
-    
+
     fn exec_assignment(&mut self, assign: &Assignment) -> Result<(), String> {
         let value = if let Some(expr) = &assign.value {
             self.eval_expr(expr)?
@@ -327,11 +390,12 @@ impl Executor {
         self.env.define(assign.name.clone(), value);
         Ok(())
     }
-    
+
     fn get_arg(&mut self, arguments: &[Assignment], name: &str) -> Result<Option<f64>, String> {
-        if let Some(argument) = arguments.iter().find(|a| {
-            a.name == name || a.name.strip_prefix('$') == Some(name)
-        }) {
+        if let Some(argument) = arguments
+            .iter()
+            .find(|a| a.name == name || a.name.strip_prefix('$') == Some(name))
+        {
             if let Some(expr) = &argument.value {
                 let v = self.eval_expr(expr)?;
                 if v.is_undef() {
@@ -343,7 +407,9 @@ impl Executor {
                 return Ok(None);
             }
         }
-        let value = self.env.get(name)
+        let value = self
+            .env
+            .get(name)
             .or_else(|| self.env.get(&format!("${name}")));
         match value {
             Some(Value::Undef) | None => Ok(None),
@@ -351,8 +417,16 @@ impl Executor {
         }
     }
 
-    fn get_positional_arg(&mut self, arguments: &[Assignment], index: usize) -> Result<Option<f64>, String> {
-        let Some(argument) = arguments.iter().filter(|argument| argument.name.is_empty()).nth(index) else {
+    fn get_positional_arg(
+        &mut self,
+        arguments: &[Assignment],
+        index: usize,
+    ) -> Result<Option<f64>, String> {
+        let Some(argument) = arguments
+            .iter()
+            .filter(|argument| argument.name.is_empty())
+            .nth(index)
+        else {
             return Ok(None);
         };
         let Some(expression) = &argument.value else {
@@ -366,17 +440,22 @@ impl Executor {
         }
     }
 
-
-    fn get_string(&mut self, arguments: &[Assignment], name: &str) -> Result<Option<String>, String> {
-        let Some(argument) = arguments.iter().find(|argument| {
-            argument.name == name || argument.name.strip_prefix('$') == Some(name)
-        }).or_else(|| {
-            if matches!(name, "file" | "text") {
-                arguments.iter().find(|argument| argument.name.is_empty())
-            } else {
-                None
-            }
-        }) else {
+    fn get_string(
+        &mut self,
+        arguments: &[Assignment],
+        name: &str,
+    ) -> Result<Option<String>, String> {
+        let Some(argument) = arguments
+            .iter()
+            .find(|argument| argument.name == name || argument.name.strip_prefix('$') == Some(name))
+            .or_else(|| {
+                if matches!(name, "file" | "text") {
+                    arguments.iter().find(|argument| argument.name.is_empty())
+                } else {
+                    None
+                }
+            })
+        else {
             return Ok(None);
         };
         let Some(expression) = &argument.value else {
@@ -391,11 +470,17 @@ impl Executor {
             _ => Err(format!("{name} must be a string")),
         }
     }
-    
-    fn get_bool(&mut self, arguments: &[Assignment], name: &str, default: bool) -> Result<bool, String> {
-        match arguments.iter().find(|a| {
-            a.name == name || a.name.strip_prefix('$') == Some(name)
-        }) {
+
+    fn get_bool(
+        &mut self,
+        arguments: &[Assignment],
+        name: &str,
+        default: bool,
+    ) -> Result<bool, String> {
+        match arguments
+            .iter()
+            .find(|a| a.name == name || a.name.strip_prefix('$') == Some(name))
+        {
             Some(a) => {
                 if let Some(expr) = &a.value {
                     let v = self.eval_expr(expr)?;
@@ -425,27 +510,42 @@ impl Executor {
         let Value::Vector(values) = value else {
             return Err("transformation vector must be a vector".into());
         };
-        let x = values.get(0).and_then(|v| v.as_number().ok()).unwrap_or(0.0);
-        let y = values.get(1).and_then(|v| v.as_number().ok()).unwrap_or(0.0);
-        let z = values.get(2).and_then(|v| v.as_number().ok()).unwrap_or(0.0);
+        let x = values
+            .get(0)
+            .and_then(|v| v.as_number().ok())
+            .unwrap_or(0.0);
+        let y = values
+            .get(1)
+            .and_then(|v| v.as_number().ok())
+            .unwrap_or(0.0);
+        let z = values
+            .get(2)
+            .and_then(|v| v.as_number().ok())
+            .unwrap_or(0.0);
         Ok(Some([x, y, z]))
     }
 
-
-    fn get_vector(&mut self, arguments: &[Assignment], name: &str) -> Result<Option<Value>, String> {
-        let argument = arguments.iter().find(|argument| {
-            argument.name == name || argument.name.strip_prefix('$') == Some(name)
-        }).or_else(|| {
-            if matches!(name, "size" | "points" | "faces" | "color" | "matrix") {
-                arguments.iter().find(|argument| argument.name.is_empty())
-            } else {
-                None
-            }
-        });
+    fn get_vector(
+        &mut self,
+        arguments: &[Assignment],
+        name: &str,
+    ) -> Result<Option<Value>, String> {
+        let argument = arguments
+            .iter()
+            .find(|argument| argument.name == name || argument.name.strip_prefix('$') == Some(name))
+            .or_else(|| {
+                if matches!(name, "size" | "points" | "faces" | "color" | "matrix") {
+                    arguments.iter().find(|argument| argument.name.is_empty())
+                } else {
+                    None
+                }
+            });
         let Some(argument) = argument else {
             return Ok(None);
         };
-        argument.value.as_ref()
+        argument
+            .value
+            .as_ref()
             .map(|expression| self.eval_expr(expression))
             .transpose()
     }
@@ -501,13 +601,16 @@ impl Executor {
         fa: Option<f64>,
         fs: Option<f64>,
     ) -> Result<(Option<usize>, Option<f64>, Option<f64>), String> {
-        let fn_ = fn_.filter(|&v| v > 0.0).map(|value| {
-            if value < 3.0 || value.fract() != 0.0 {
-                Err("$fn must be an integer greater than or equal to 3".to_string())
-            } else {
-                Ok(value as usize)
-            }
-        }).transpose()?;
+        let fn_ = fn_
+            .filter(|&v| v > 0.0)
+            .map(|value| {
+                if value < 3.0 || value.fract() != 0.0 {
+                    Err("$fn must be an integer greater than or equal to 3".to_string())
+                } else {
+                    Ok(value as usize)
+                }
+            })
+            .transpose()?;
         for (name, value) in [("$fa", fa), ("$fs", fs)] {
             if let Some(value) = value {
                 if value <= 0.0 || !value.is_finite() {
@@ -519,7 +622,8 @@ impl Executor {
     }
 
     fn get_matrix4(&mut self, arguments: &[Assignment]) -> Result<nalgebra::Matrix4<f64>, String> {
-        let value = self.get_vector(arguments, "matrix")?
+        let value = self
+            .get_vector(arguments, "matrix")?
             .ok_or_else(|| "multmatrix requires a 4x4 matrix".to_string())?;
         let Value::Vector(rows) = value else {
             return Err("multmatrix requires a 4x4 matrix".into());
@@ -549,87 +653,114 @@ impl Executor {
         let Value::Vector(points) = value else {
             return Err("polyhedron points must be a vector".into());
         };
-        points.into_iter().map(|point| {
-            let Value::Vector(values) = point else {
-                return Err("each polyhedron point must be a vector".into());
-            };
-            if values.len() != 3 {
-                return Err("each polyhedron point must contain three values".into());
-            }
-            Ok([values[0].as_number()?, values[1].as_number()?, values[2].as_number()?])
-        }).collect()
+        points
+            .into_iter()
+            .map(|point| {
+                let Value::Vector(values) = point else {
+                    return Err("each polyhedron point must be a vector".into());
+                };
+                if values.len() != 3 {
+                    return Err("each polyhedron point must contain three values".into());
+                }
+                Ok([
+                    values[0].as_number()?,
+                    values[1].as_number()?,
+                    values[2].as_number()?,
+                ])
+            })
+            .collect()
     }
 
     fn value_faces(value: Value, point_count: usize) -> Result<Vec<Vec<usize>>, String> {
         let Value::Vector(faces) = value else {
             return Err("polyhedron faces must be a vector".into());
         };
-        faces.into_iter().map(|face| {
-            let Value::Vector(indices) = face else {
-                return Err("each polyhedron face must be a vector".into());
-            };
-            let indices = indices.into_iter().map(|index| {
-                let index = index.as_number()?;
-                if index < 0.0 || index.fract() != 0.0 || index as usize >= point_count {
-                    return Err("polyhedron face index is out of bounds".into());
+        faces
+            .into_iter()
+            .map(|face| {
+                let Value::Vector(indices) = face else {
+                    return Err("each polyhedron face must be a vector".into());
+                };
+                let indices = indices
+                    .into_iter()
+                    .map(|index| {
+                        let index = index.as_number()?;
+                        if index < 0.0 || index.fract() != 0.0 || index as usize >= point_count {
+                            return Err("polyhedron face index is out of bounds".into());
+                        }
+                        Ok(index as usize)
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                if indices.len() < 3 {
+                    return Err("polyhedron faces need at least three points".into());
                 }
-                Ok(index as usize)
-            }).collect::<Result<Vec<_>, String>>()?;
-            if indices.len() < 3 {
-                return Err("polyhedron faces need at least three points".into());
-            }
-            Ok(indices)
-        }).collect()
+                Ok(indices)
+            })
+            .collect()
     }
 
     fn value_points2(value: Value) -> Result<Vec<[f64; 2]>, String> {
         let Value::Vector(points) = value else {
             return Err("polygon points must be a vector".into());
         };
-        points.into_iter().map(|point| {
-            let Value::Vector(values) = point else {
-                return Err("each polygon point must be a vector".into());
-            };
-            if values.len() != 2 {
-                return Err("each polygon point must contain two values".into());
-            }
-            Ok([values[0].as_number()?, values[1].as_number()?])
-        }).collect()
+        points
+            .into_iter()
+            .map(|point| {
+                let Value::Vector(values) = point else {
+                    return Err("each polygon point must be a vector".into());
+                };
+                if values.len() != 2 {
+                    return Err("each polygon point must contain two values".into());
+                }
+                Ok([values[0].as_number()?, values[1].as_number()?])
+            })
+            .collect()
     }
 
     fn value_paths(value: Value, point_count: usize) -> Result<Vec<Vec<usize>>, String> {
         let Value::Vector(paths) = value else {
             return Err("polygon paths must be a vector".into());
         };
-        paths.into_iter().map(|path| {
-            let Value::Vector(indices) = path else {
-                return Err("each polygon path must be a vector".into());
-            };
-            let indices = indices.into_iter().map(|index| {
-                let index = index.as_number()?;
-                if index < 0.0 || index.fract() != 0.0 || index as usize >= point_count {
-                    return Err("polygon path index is out of bounds".into());
+        paths
+            .into_iter()
+            .map(|path| {
+                let Value::Vector(indices) = path else {
+                    return Err("each polygon path must be a vector".into());
+                };
+                let indices = indices
+                    .into_iter()
+                    .map(|index| {
+                        let index = index.as_number()?;
+                        if index < 0.0 || index.fract() != 0.0 || index as usize >= point_count {
+                            return Err("polygon path index is out of bounds".into());
+                        }
+                        Ok(index as usize)
+                    })
+                    .collect::<Result<Vec<_>, String>>()?;
+                if indices.len() < 3 {
+                    return Err("polygon paths need at least three points".into());
                 }
-                Ok(index as usize)
-            }).collect::<Result<Vec<_>, String>>()?;
-            if indices.len() < 3 {
-                return Err("polygon paths need at least three points".into());
-            }
-            if indices.windows(2).any(|window| window[0] == window[1])
-                || indices.first() == indices.last()
-            {
-                return Err("polygon paths cannot contain duplicate adjacent points".into());
-            }
-            Ok(indices)
-        }).collect()
+                if indices.windows(2).any(|window| window[0] == window[1])
+                    || indices.first() == indices.last()
+                {
+                    return Err("polygon paths cannot contain duplicate adjacent points".into());
+                }
+                Ok(indices)
+            })
+            .collect()
     }
 
     fn validate_polygon_paths(points: &[[f64; 2]], paths: &[Vec<usize>]) -> Result<(), String> {
         for path in paths {
-            let area: f64 = path.iter().enumerate().map(|(index, &current)| {
-                let next = path[(index + 1) % path.len()];
-                points[current][0] * points[next][1] - points[next][0] * points[current][1]
-            }).sum::<f64>() / 2.0;
+            let area: f64 = path
+                .iter()
+                .enumerate()
+                .map(|(index, &current)| {
+                    let next = path[(index + 1) % path.len()];
+                    points[current][0] * points[next][1] - points[next][0] * points[current][1]
+                })
+                .sum::<f64>()
+                / 2.0;
             if area.abs() <= f64::EPSILON {
                 return Err("polygon paths must enclose a non-zero area".into());
             }
@@ -637,10 +768,7 @@ impl Executor {
                 let first_next = (first + 1) % path.len();
                 for second in (first + 1)..path.len() {
                     let second_next = (second + 1) % path.len();
-                    if first == second
-                        || first_next == second
-                        || second_next == first
-                    {
+                    if first == second || first_next == second || second_next == first {
                         continue;
                     }
                     if Self::segments_intersect(
@@ -689,7 +817,7 @@ impl Executor {
         (ab_c > 0.0 && ab_d < 0.0 || ab_c < 0.0 && ab_d > 0.0)
             && (cd_a > 0.0 && cd_b < 0.0 || cd_a < 0.0 && cd_b > 0.0)
     }
-    
+
     fn exec_module_inst(
         &mut self,
         name: &str,
@@ -698,14 +826,17 @@ impl Executor {
         _modifiers: &ModuleModifiers,
     ) -> Result<(), String> {
         if name == "for" {
-            let binding = arguments.first()
+            let binding = arguments
+                .first()
                 .ok_or_else(|| "for requires a loop variable".to_string())?;
             let variable = if binding.name.is_empty() {
                 return Err("for requires a named loop variable".into());
             } else {
                 binding.name.clone()
             };
-            let values = binding.value.as_ref()
+            let values = binding
+                .value
+                .as_ref()
                 .ok_or_else(|| "for requires an iterable expression".to_string())
                 .and_then(|expr| self.eval_expr(expr))?;
             let values = match values {
@@ -715,11 +846,21 @@ impl Executor {
             for value in values {
                 let loop_env = Environment::with_parent(self.env.clone());
                 loop_env.define(variable.clone(), value);
-                let mut loop_exec = Executor::with_depth(Rc::new(loop_env), self.source_stack.clone(), self.loading.clone(), self.depth + 1);
+                let mut loop_exec = Executor::with_depth(
+                    Rc::new(loop_env),
+                    self.source_stack.clone(),
+                    self.loading.clone(),
+                    self.depth + 1,
+                );
                 for child in children {
                     loop_exec.execute(child)?;
                 }
-                if let Some(node) = loop_exec.csg_stack.into_iter().next().and_then(|builder| builder.build()) {
+                if let Some(node) = loop_exec
+                    .csg_stack
+                    .into_iter()
+                    .next()
+                    .and_then(|builder| builder.build())
+                {
                     self.current_builder().union(node);
                 }
             }
@@ -756,7 +897,11 @@ impl Executor {
             for child in children {
                 let_exec.execute(child)?;
             }
-            if let Some(node) = let_exec.csg_stack.into_iter().next().and_then(|builder| builder.build())
+            if let Some(node) = let_exec
+                .csg_stack
+                .into_iter()
+                .next()
+                .and_then(|builder| builder.build())
             {
                 self.current_builder().union(node);
             }
@@ -840,7 +985,7 @@ impl Executor {
                 return Ok(());
             }
         }
-        
+
         // Handle user-defined modules
         let module_opt = self.env.get_module(name).or_else(|| {
             if let Some(Value::Module(m)) = self.env.get(name) {
@@ -864,9 +1009,10 @@ impl Executor {
         let new_env = Environment::with_parent(self.env.clone());
         let new_env_rc = Rc::new(new_env);
         let mut positional = arguments.iter().filter(|argument| argument.name.is_empty());
-        
+
         for (param_name, default) in &module.params {
-            let argument = arguments.iter()
+            let argument = arguments
+                .iter()
                 .find(|argument| argument.name == *param_name)
                 .or_else(|| positional.next());
             let value = if let Some(arg) = argument {
@@ -888,30 +1034,43 @@ impl Executor {
             };
             new_env_rc.define(param_name.clone(), value);
         }
-        
+
         if self.depth >= 50 {
             return Err(format!("Recursion detected calling module '{}'", name));
         }
-        let mut exec = Executor::with_depth(new_env_rc, self.source_stack.clone(), self.loading.clone(), self.depth + 1);
+        let mut exec = Executor::with_depth(
+            new_env_rc,
+            self.source_stack.clone(),
+            self.loading.clone(),
+            self.depth + 1,
+        );
         exec.hoist_definitions(&module.body)?;
 
-                for stmt in &module.body {
-                    if !matches!(stmt, Statement::FunctionDef { .. } | Statement::ModuleDef { .. }) {
-                        exec.execute_with_forwarded_children(stmt, children)?;
-                    }
-                }
-                
-                if !Self::contains_children_call(&module.body) {
-                    for child in children {
-                        exec.execute(child)?;
-                    }
-                }
-                if let Some(node) = exec.csg_stack.into_iter().next().and_then(|builder| builder.build()) {
-                    self.current_builder().union(node);
-                }
-                Ok(())
+        for stmt in &module.body {
+            if !matches!(
+                stmt,
+                Statement::FunctionDef { .. } | Statement::ModuleDef { .. }
+            ) {
+                exec.execute_with_forwarded_children(stmt, children)?;
+            }
+        }
+
+        if !Self::contains_children_call(&module.body) {
+            for child in children {
+                exec.execute(child)?;
+            }
+        }
+        if let Some(node) = exec
+            .csg_stack
+            .into_iter()
+            .next()
+            .and_then(|builder| builder.build())
+        {
+            self.current_builder().union(node);
+        }
+        Ok(())
     }
-    
+
     fn exec_builtin_module(
         &mut self,
         name: &str,
@@ -935,26 +1094,28 @@ impl Executor {
         // let fa_opt = self.get_arg(arguments, "fa")?;
         // let fs_opt = self.get_arg(arguments, "fs")?;
         // let center_bool = self.get_bool(arguments, "center", false)?;
-        
+
         // Get translation/rotation/scale/mirror args
         // let trans_v = [
         //     self.get_arg(arguments, "x")?.unwrap_or(0.0),
         //     self.get_arg(arguments, "y")?.unwrap_or(0.0),
         //     self.get_arg(arguments, "z")?.unwrap_or(0.0),
         // ];
-        
+
         // let center_bool = self.get_bool(arguments, "center", false)?;
-        
+
         match name {
             "assert" => {
-                let condition = arguments.first()
+                let condition = arguments
+                    .first()
                     .and_then(|argument| argument.value.as_ref())
                     .map(|expression| self.eval_expr(expression))
                     .transpose()?
                     .map(|value| value.as_bool())
                     .unwrap_or(false);
                 if !condition {
-                    let msg = arguments.get(1)
+                    let msg = arguments
+                        .get(1)
                         .and_then(|arg| arg.value.as_ref())
                         .map(|expr| self.eval_expr(expr))
                         .transpose()?
@@ -980,15 +1141,18 @@ impl Executor {
                 Ok(Some(()))
             }
             "text" => {
-                let text = self.get_string(arguments, "text")?
+                let text = self
+                    .get_string(arguments, "text")?
                     .ok_or_else(|| "text requires a string".to_string())?;
                 let size = self.get_arg(arguments, "size")?.unwrap_or(10.0);
                 if size <= 0.0 {
                     return Err("text size must be positive".into());
                 }
-                let halign = self.get_string(arguments, "halign")?
+                let halign = self
+                    .get_string(arguments, "halign")?
                     .unwrap_or_else(|| "left".to_string());
-                let valign = self.get_string(arguments, "valign")?
+                let valign = self
+                    .get_string(arguments, "valign")?
                     .unwrap_or_else(|| "baseline".to_string());
                 if !matches!(halign.as_str(), "left" | "center" | "right") {
                     return Err("text halign must be left, center, or right".into());
@@ -1011,9 +1175,18 @@ impl Executor {
                     match value {
                         Value::Number(s) => [s; 3],
                         Value::Vector(values) => [
-                            values.get(0).and_then(|v| v.as_number().ok()).unwrap_or(1.0),
-                            values.get(1).and_then(|v| v.as_number().ok()).unwrap_or(1.0),
-                            values.get(2).and_then(|v| v.as_number().ok()).unwrap_or(1.0),
+                            values
+                                .get(0)
+                                .and_then(|v| v.as_number().ok())
+                                .unwrap_or(1.0),
+                            values
+                                .get(1)
+                                .and_then(|v| v.as_number().ok())
+                                .unwrap_or(1.0),
+                            values
+                                .get(2)
+                                .and_then(|v| v.as_number().ok())
+                                .unwrap_or(1.0),
                         ],
                         _ => [1.0, 1.0, 1.0],
                     }
@@ -1025,18 +1198,24 @@ impl Executor {
                     ]
                 };
                 if size.iter().any(|value| *value < 0.0 || !value.is_finite()) {
-                    return Err(format!("cube dimensions must be non-negative and finite: {:?}", size));
+                    return Err(format!(
+                        "cube dimensions must be non-negative and finite: {:?}",
+                        size
+                    ));
                 }
                 if size.iter().any(|value| *value == 0.0) {
                     return Ok(Some(()));
                 }
                 let center = self.get_bool(arguments, "center", false)?;
-                self.current_builder().add_primitive(Primitive::Cube { size, center });
+                self.current_builder()
+                    .add_primitive(Primitive::Cube { size, center });
                 Ok(Some(()))
             }
             "sphere" => {
                 let r = {
-                    let r_val = self.get_arg(arguments, "r")?.or(self.get_positional_arg(arguments, 0)?);
+                    let r_val = self
+                        .get_arg(arguments, "r")?
+                        .or(self.get_positional_arg(arguments, 0)?);
                     let d_val = self.get_arg(arguments, "d")?;
                     r_val.or_else(|| d_val.map(|d| d / 2.0)).unwrap_or(1.0)
                 };
@@ -1048,12 +1227,23 @@ impl Executor {
                     self.get_arg(arguments, "fa")?,
                     self.get_arg(arguments, "fs")?,
                 )?;
-                self.current_builder().add_primitive(Primitive::Sphere { r, d: None, fn_, fa, fs });
+                self.current_builder().add_primitive(Primitive::Sphere {
+                    r,
+                    d: None,
+                    fn_,
+                    fa,
+                    fs,
+                });
                 Ok(Some(()))
             }
             "cylinder" => {
-                let h = self.get_arg(arguments, "h")?.or(self.get_positional_arg(arguments, 0)?).unwrap_or(1.0);
-                let r = self.get_arg(arguments, "r")?.or(self.get_positional_arg(arguments, 1)?);
+                let h = self
+                    .get_arg(arguments, "h")?
+                    .or(self.get_positional_arg(arguments, 0)?)
+                    .unwrap_or(1.0);
+                let r = self
+                    .get_arg(arguments, "r")?
+                    .or(self.get_positional_arg(arguments, 1)?);
                 let d = self.get_arg(arguments, "d")?.map(|value| value / 2.0);
                 let r1 = self.get_arg(arguments, "r1")?.or(r).or(d).unwrap_or(1.0);
                 let r2 = self.get_arg(arguments, "r2")?.or(r).or(d).unwrap_or(r1);
@@ -1067,7 +1257,15 @@ impl Executor {
                 )?;
                 let center = self.get_bool(arguments, "center", false)?;
                 self.current_builder().add_primitive(Primitive::Cylinder {
-                    h, r1, r2, d1: None, d2: None, center, fn_, fa, fs,
+                    h,
+                    r1,
+                    r2,
+                    d1: None,
+                    d2: None,
+                    center,
+                    fn_,
+                    fa,
+                    fs,
                 });
                 Ok(Some(()))
             }
@@ -1084,12 +1282,15 @@ impl Executor {
                     return Err("square dimensions must be positive and finite".into());
                 }
                 let center = self.get_bool(arguments, "center", false)?;
-                self.current_builder().add_primitive(Primitive::Square { size, center });
+                self.current_builder()
+                    .add_primitive(Primitive::Square { size, center });
                 Ok(Some(()))
             }
             "circle" => {
                 let r = {
-                    let r_val = self.get_arg(arguments, "r")?.or(self.get_positional_arg(arguments, 0)?);
+                    let r_val = self
+                        .get_arg(arguments, "r")?
+                        .or(self.get_positional_arg(arguments, 0)?);
                     let d_val = self.get_arg(arguments, "d")?;
                     r_val.or_else(|| d_val.map(|d| d / 2.0)).unwrap_or(1.0)
                 };
@@ -1101,11 +1302,18 @@ impl Executor {
                     self.get_arg(arguments, "fa")?,
                     self.get_arg(arguments, "fs")?,
                 )?;
-                self.current_builder().add_primitive(Primitive::Circle { r, d: None, fn_, fa, fs });
+                self.current_builder().add_primitive(Primitive::Circle {
+                    r,
+                    d: None,
+                    fn_,
+                    fa,
+                    fs,
+                });
                 Ok(Some(()))
             }
             "polygon" => {
-                let points = self.get_vector(arguments, "points")?
+                let points = self
+                    .get_vector(arguments, "points")?
                     .ok_or_else(|| "polygon requires points".to_string())
                     .and_then(Self::value_points2)?;
                 let paths = if let Some(value) = self.get_vector(arguments, "paths")? {
@@ -1114,11 +1322,15 @@ impl Executor {
                     vec![(0..points.len()).collect()]
                 };
                 Self::validate_polygon_paths(&points, &paths)?;
-                self.current_builder().add_primitive(Primitive::Polygon { points, paths });
+                self.current_builder()
+                    .add_primitive(Primitive::Polygon { points, paths });
                 Ok(Some(()))
             }
             "linear_extrude" => {
-                let height = self.get_arg(arguments, "height")?.or(self.get_positional_arg(arguments, 0)?).unwrap_or(1.0);
+                let height = self
+                    .get_arg(arguments, "height")?
+                    .or(self.get_positional_arg(arguments, 0)?)
+                    .unwrap_or(1.0);
                 if height <= 0.0 {
                     return Err("linear_extrude height must be positive".into());
                 }
@@ -1126,35 +1338,44 @@ impl Executor {
                 let twist = self.get_arg(arguments, "twist")?.unwrap_or(0.0);
                 let scale = match self.get_vector(arguments, "scale")? {
                     Some(Value::Number(s)) => s,
-                    Some(Value::Vector(v)) => v.first().and_then(|x| x.as_number().ok()).unwrap_or(1.0),
+                    Some(Value::Vector(v)) => {
+                        v.first().and_then(|x| x.as_number().ok()).unwrap_or(1.0)
+                    }
                     _ => 1.0,
                 };
                 if !twist.is_finite() || !scale.is_finite() || scale < 0.0 {
-                    return Err("linear_extrude twist must be finite and scale must be non-negative".into());
+                    return Err(
+                        "linear_extrude twist must be finite and scale must be non-negative".into(),
+                    );
                 }
                 self.csg_stack.push(CsgBuilder::new());
                 for child in children {
                     self.execute(child)?;
                 }
                 if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
-                    self.current_builder().union(crate::csg::CsgNode::LinearExtrude {
-                        child: Box::new(child_csg),
-                        height,
-                        center,
-                        twist,
-                        scale,
-                    });
+                    self.current_builder()
+                        .union(crate::csg::CsgNode::LinearExtrude {
+                            child: Box::new(child_csg),
+                            height,
+                            center,
+                            twist,
+                            scale,
+                        });
                 }
                 Ok(Some(()))
             }
             "rotate_extrude" => {
-                let angle = self.get_arg(arguments, "angle")?
+                let angle = self
+                    .get_arg(arguments, "angle")?
                     .or(self.get_positional_arg(arguments, 0)?)
                     .unwrap_or(360.0);
                 if angle <= 0.0 || angle > 360.0 {
-                    return Err("rotate_extrude angle must be greater than zero and at most 360".into());
+                    return Err(
+                        "rotate_extrude angle must be greater than zero and at most 360".into(),
+                    );
                 }
-                let segments = self.get_arg(arguments, "fn")?
+                let segments = self
+                    .get_arg(arguments, "fn")?
                     .map(|value| value as usize)
                     .unwrap_or(32)
                     .max(3);
@@ -1163,38 +1384,46 @@ impl Executor {
                     self.execute(child)?;
                 }
                 if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
-                    self.current_builder().union(crate::csg::CsgNode::RotateExtrude {
-                        child: Box::new(child_csg),
-                        angle,
-                        segments,
-                    });
+                    self.current_builder()
+                        .union(crate::csg::CsgNode::RotateExtrude {
+                            child: Box::new(child_csg),
+                            angle,
+                            segments,
+                        });
                 }
                 Ok(Some(()))
             }
             "polyhedron" => {
-                let points = self.get_vector(arguments, "points")?
+                let points = self
+                    .get_vector(arguments, "points")?
                     .ok_or_else(|| "polyhedron requires points".to_string())
                     .and_then(Self::value_points)?;
-                let faces = self.get_vector(arguments, "faces")?
+                let faces = self
+                    .get_vector(arguments, "faces")?
                     .ok_or_else(|| "polyhedron requires faces".to_string())
                     .and_then(|value| Self::value_faces(value, points.len()))?;
-                self.current_builder().add_primitive(Primitive::Polyhedron { points, faces });
+                self.current_builder()
+                    .add_primitive(Primitive::Polyhedron { points, faces });
                 Ok(Some(()))
             }
             "import" => {
-                let file = self.get_string(arguments, "file")?
+                let file = self
+                    .get_string(arguments, "file")?
                     .ok_or_else(|| "import requires a file path".to_string())?;
                 let resolved = self.resolve_source_path(&file)?;
-                let data = std::fs::read(&resolved)
-                    .map_err(|error| format!("Failed to read '{}': {}", resolved.display(), error))?;
-                let imported = if resolved.extension().and_then(|extension| extension.to_str())
+                let data = std::fs::read(&resolved).map_err(|error| {
+                    format!("Failed to read '{}': {}", resolved.display(), error)
+                })?;
+                let imported = if resolved
+                    .extension()
+                    .and_then(|extension| extension.to_str())
                     .is_some_and(|extension| extension.eq_ignore_ascii_case("obj"))
                 {
                     crate::csg::Mesh::from_obj(&data)
                 } else {
                     crate::csg::Mesh::from_stl(&data)
                 }
-                    .map_err(|error| format!("Failed to import '{}': {}", resolved.display(), error))?;
+                .map_err(|error| format!("Failed to import '{}': {}", resolved.display(), error))?;
                 let faces = imported.faces.iter().map(|face| face.to_vec()).collect();
                 self.current_builder().add_primitive(Primitive::Polyhedron {
                     points: imported.vertices,
@@ -1224,8 +1453,15 @@ impl Executor {
                 Ok(Some(()))
             }
             "rotate" => {
-                let v = if let Some(argument) = arguments.iter().find(|argument| argument.name.is_empty()) {
-                    match argument.value.as_ref().map(|expr| self.eval_expr(expr)).transpose()? {
+                let v = if let Some(argument) =
+                    arguments.iter().find(|argument| argument.name.is_empty())
+                {
+                    match argument
+                        .value
+                        .as_ref()
+                        .map(|expr| self.eval_expr(expr))
+                        .transpose()?
+                    {
                         Some(Value::Number(angle)) => [0.0, 0.0, angle],
                         Some(Value::Vector(_)) => self.get_vector3(arguments)?.unwrap(),
                         Some(_) => return Err("rotation must be a number or vector".into()),
@@ -1252,7 +1488,8 @@ impl Executor {
                 Ok(Some(()))
             }
             "scale" => {
-                let positional = arguments.iter()
+                let positional = arguments
+                    .iter()
                     .filter(|argument| argument.name.is_empty())
                     .next()
                     .and_then(|argument| argument.value.as_ref());
@@ -1264,11 +1501,9 @@ impl Executor {
                             values[1].as_number()?,
                             values[2].as_number()?,
                         ],
-                        Value::Vector(values) if values.len() == 2 => [
-                            values[0].as_number()?,
-                            values[1].as_number()?,
-                            1.0,
-                        ],
+                        Value::Vector(values) if values.len() == 2 => {
+                            [values[0].as_number()?, values[1].as_number()?, 1.0]
+                        }
                         _ => return Err("scale requires a scalar or vector".into()),
                     }
                 } else {
@@ -1424,7 +1659,7 @@ impl Executor {
             _ => Ok(None),
         }
     }
-    
+
     fn exec_module_def(
         &mut self,
         name: &str,
@@ -1432,10 +1667,11 @@ impl Executor {
         body: &[Statement],
         _modifiers: &ModuleModifiers,
     ) -> Result<(), String> {
-        let params: Vec<(String, Option<Expression>)> = params.iter()
+        let params: Vec<(String, Option<Expression>)> = params
+            .iter()
             .map(|a| (a.name.clone(), a.value.clone()))
             .collect();
-        
+
         let module = ModuleValue {
             name: name.to_string(),
             params,
@@ -1443,32 +1679,33 @@ impl Executor {
             captures: self.env.clone(),
             modifiers: ModuleModifiers::default(),
         };
-        
+
         self.env.define_module(name.to_string(), module);
         Ok(())
     }
-    
+
     fn exec_function_def(
         &mut self,
         name: &str,
         params: &[Assignment],
         body: &Expression,
     ) -> Result<(), String> {
-        let params: Vec<(String, Option<Expression>)> = params.iter()
+        let params: Vec<(String, Option<Expression>)> = params
+            .iter()
             .map(|a| (a.name.clone(), a.value.clone()))
             .collect();
-        
+
         let func = crate::interpreter::value::FunctionValue {
             name: name.to_string(),
             params,
             body: body.clone(),
             captures: self.env.clone(),
         };
-        
+
         self.env.define_function(name.to_string(), func);
         Ok(())
     }
-    
+
     fn exec_if(
         &mut self,
         condition: &Expression,
@@ -1484,7 +1721,7 @@ impl Executor {
             Ok(None)
         }
     }
-    
+
     fn eval_expr(&mut self, expr: &Expression) -> Result<Value, String> {
         let mut evaluator = Evaluator::with_depth(self.env.clone(), self.depth);
         evaluator.eval(expr)

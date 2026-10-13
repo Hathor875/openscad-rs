@@ -1,12 +1,15 @@
-use crate::ast::{SourceFile, Statement, Assignment, Expression, ModuleModifiers, Span, LiteralValue, UnaryOp, BinaryOp};
-use pest::Parser as PestParser;
+use crate::ast::{
+    Assignment, BinaryOp, Expression, LiteralValue, ModuleModifiers, SourceFile, Span, Statement,
+    UnaryOp,
+};
+use anyhow::Result;
 use pest::iterators::Pair;
+use pest::Parser as PestParser;
 use pest::Span as PestSpan;
 use pest_derive::Parser;
-use text_size::TextSize;
-use anyhow::Result;
 use std::fs;
 use std::path::Path;
+use text_size::TextSize;
 
 #[derive(Parser)]
 #[grammar = "parser/openscad.pest"]
@@ -34,7 +37,7 @@ impl Parser {
     pub fn parse_with_path(input: &str, path: String) -> Result<SourceFile> {
         let pairs = OpenSCADParser::parse(Rule::module, input)?;
         let mut file = SourceFile::new(path);
-        
+
         for pair in pairs {
             // eprintln!("DEBUG parse: pair rule = {:?}", pair.as_rule());
             for inner in pair.into_inner() {
@@ -42,17 +45,17 @@ impl Parser {
                 Self::parse_top_level(inner, &mut file)?;
             }
         }
-        
+
         Ok(file)
     }
-    
+
     fn pest_span_to_span(span: PestSpan) -> Span {
         Span::new(
             TextSize::try_from(span.start()).unwrap_or_default(),
             TextSize::try_from(span.end()).unwrap_or_default(),
         )
     }
-    
+
     fn parse_top_level(pair: Pair<Rule>, file: &mut SourceFile) -> Result<()> {
         match pair.as_rule() {
             Rule::top_level => {
@@ -65,15 +68,20 @@ impl Parser {
                             }
                         }
                         Rule::include_stmt => {
-                            if let Some(inner2) = inner.clone().into_inner()
+                            if let Some(inner2) = inner
+                                .clone()
+                                .into_inner()
                                 .find(|pair| pair.as_rule() == Rule::include_path)
                             {
                                 let path = inner2.as_str().trim().to_string();
-                                file.statements.push(Statement::Include(path, Span::default()));
+                                file.statements
+                                    .push(Statement::Include(path, Span::default()));
                             }
                         }
                         Rule::use_directive => {
-                            if let Some(inner2) = inner.clone().into_inner()
+                            if let Some(inner2) = inner
+                                .clone()
+                                .into_inner()
                                 .find(|pair| pair.as_rule() == Rule::include_path)
                             {
                                 let path = inner2.as_str().trim().to_string();
@@ -89,7 +97,7 @@ impl Parser {
         }
         Ok(())
     }
-    
+
     fn parse_statement(pair: Pair<Rule>) -> Result<Option<Statement>> {
         match pair.as_rule() {
             Rule::statement => {
@@ -97,7 +105,9 @@ impl Parser {
                 if let Some(first) = inner.next() {
                     // eprintln!("DEBUG parse_statement: first rule = {:?}", first.as_rule());
                     match first.as_rule() {
-                        Rule::module_instantiation => Ok(Some(Self::parse_module_instantiation(first)?)),
+                        Rule::module_instantiation => {
+                            Ok(Some(Self::parse_module_instantiation(first)?))
+                        }
                         Rule::assignment => Ok(Some(Self::parse_assignment(first)?)),
                         Rule::module_def => Ok(Some(Self::parse_module_def(first)?)),
                         Rule::function_def => Ok(Some(Self::parse_function_def(first)?)),
@@ -105,14 +115,10 @@ impl Parser {
                         Rule::block => Ok(Some(Self::parse_block(first)?)),
                         // `include`/`use` are statements too: libraries place
                         // them inside module bodies and blocks.
-                        Rule::include_stmt => Ok(Some(Self::parse_source_directive(
-                            first,
-                            true,
-                        )?)),
-                        Rule::use_directive => Ok(Some(Self::parse_source_directive(
-                            first,
-                            false,
-                        )?)),
+                        Rule::include_stmt => Ok(Some(Self::parse_source_directive(first, true)?)),
+                        Rule::use_directive => {
+                            Ok(Some(Self::parse_source_directive(first, false)?))
+                        }
                         _ => Ok(None),
                     }
                 } else {
@@ -122,7 +128,7 @@ impl Parser {
             _ => Ok(None),
         }
     }
-    
+
     fn parse_source_directive(pair: Pair<Rule>, is_include: bool) -> Result<Statement> {
         let span = Self::pest_span_to_span(pair.as_span());
         let path = pair
@@ -143,18 +149,16 @@ impl Parser {
         let mut args = Vec::new();
         let mut children = Vec::new();
         let span = Self::pest_span_to_span(pair.as_span());
-        
+
         for inner in pair.into_inner() {
             match inner.as_rule() {
-                Rule::modifier => {
-                    match inner.as_str() {
-                        "!" => modifiers.root = true,
-                        "#" => modifiers.highlight = true,
-                        "%" => modifiers.background = true,
-                        "*" => modifiers.disabled = true,
-                        _ => {}
-                    }
-                }
+                Rule::modifier => match inner.as_str() {
+                    "!" => modifiers.root = true,
+                    "#" => modifiers.highlight = true,
+                    "%" => modifiers.background = true,
+                    "*" => modifiers.disabled = true,
+                    _ => {}
+                },
                 Rule::module_id => {
                     name = inner.as_str().trim().to_string();
                 }
@@ -205,7 +209,7 @@ impl Parser {
                 _ => {}
             }
         }
-        
+
         Ok(Statement::ModuleInstantiation {
             name,
             args,
@@ -214,14 +218,14 @@ impl Parser {
             span,
         })
     }
-    
+
     /// Parses one call argument. Empty slots from stray commas (`f(a, , b)`)
     /// yield `None` so they are dropped, matching OpenSCAD.
     fn parse_argument(pair: Pair<Rule>) -> Result<Option<Assignment>> {
         let span = Self::pest_span_to_span(pair.as_span());
         let mut name = String::new();
         let mut value = None;
-        
+
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::expression => {
@@ -236,19 +240,19 @@ impl Parser {
                 _ => {}
             }
         }
-        
+
         if name.is_empty() && value.is_none() {
             Ok(None)
         } else {
             Ok(Some(Assignment::new(name, value, span)))
         }
     }
-    
+
     fn parse_assignment(pair: Pair<Rule>) -> Result<Statement> {
         let mut name = String::new();
         let mut value = None;
         let span = Self::pest_span_to_span(pair.as_span());
-        
+
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::identifier => {
@@ -260,16 +264,16 @@ impl Parser {
                 _ => {}
             }
         }
-        
+
         Ok(Statement::Assignment(Assignment::new(name, value, span)))
     }
-    
+
     fn parse_module_def(pair: Pair<Rule>) -> Result<Statement> {
         let mut name = String::new();
         let mut params = Vec::new();
         let mut body = Vec::new();
         let span = Self::pest_span_to_span(pair.as_span());
-        
+
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::identifier => {
@@ -302,17 +306,22 @@ impl Parser {
                 _ => {}
             }
         }
-        
-        Ok(Statement::ModuleDef { name, params, body, span })
+
+        Ok(Statement::ModuleDef {
+            name,
+            params,
+            body,
+            span,
+        })
     }
-    
+
     fn parse_if_stmt(pair: Pair<Rule>) -> Result<Statement> {
         let mut condition = None;
         let mut then_branch = None;
         let mut else_branch = None;
         let span = Self::pest_span_to_span(pair.as_span());
         // eprintln!("DEBUG parse_if_stmt: pair rule = {:?}", pair.as_rule());
-        
+
         for inner in pair.into_inner() {
             // eprintln!("DEBUG parse_if_stmt: inner rule = {:?}, text = {:?}", inner.as_rule(), inner.as_str());
             match inner.as_rule() {
@@ -325,8 +334,8 @@ impl Parser {
                     // A bare `;` is a valid null branch: NopSCADlib writes
                     // `if (cutout) ; else ...`.
                     let stmt_span = Self::pest_span_to_span(inner.as_span());
-                    let branch = Self::parse_statement(inner)?
-                        .unwrap_or_else(|| Statement::Block {
+                    let branch =
+                        Self::parse_statement(inner)?.unwrap_or_else(|| Statement::Block {
                             statements: Vec::new(),
                             span: stmt_span,
                         });
@@ -339,7 +348,7 @@ impl Parser {
                 _ => {}
             }
         }
-        
+
         Ok(Statement::If {
             condition: condition.ok_or_else(|| anyhow::anyhow!("Missing if condition"))?,
             then_branch: then_branch.ok_or_else(|| anyhow::anyhow!("Missing then branch"))?,
@@ -347,11 +356,11 @@ impl Parser {
             span,
         })
     }
-    
+
     fn parse_block(pair: Pair<Rule>) -> Result<Statement> {
         let mut statements = Vec::new();
         let span = Self::pest_span_to_span(pair.as_span());
-        
+
         for inner in pair.into_inner() {
             if let Rule::statement = inner.as_rule() {
                 if let Some(stmt) = Self::parse_statement(inner)? {
@@ -359,15 +368,15 @@ impl Parser {
                 }
             }
         }
-        
+
         Ok(Statement::Block { statements, span })
     }
-    
+
     fn parse_parameter(pair: Pair<Rule>) -> Result<Assignment> {
         let mut name = String::new();
         let mut value = None;
         let span = Self::pest_span_to_span(pair.as_span());
-        
+
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::identifier => {
@@ -379,16 +388,16 @@ impl Parser {
                 _ => {}
             }
         }
-        
+
         Ok(Assignment::new(name, value, span))
     }
-    
+
     fn parse_function_def(pair: Pair<Rule>) -> Result<Statement> {
         let mut name = String::new();
         let mut params = Vec::new();
         let mut body = None;
         let span = Self::pest_span_to_span(pair.as_span());
-        
+
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::identifier => {
@@ -410,25 +419,31 @@ impl Parser {
                 _ => {}
             }
         }
-        
+
         Ok(Statement::FunctionDef {
             name,
             params,
-            body: body.unwrap_or(Expression::Literal(LiteralValue::Undefined, Span::default())),
+            body: body.unwrap_or(Expression::Literal(
+                LiteralValue::Undefined,
+                Span::default(),
+            )),
             span,
         })
     }
-    
+
     fn parse_expression(pair: Pair<Rule>) -> Result<Expression> {
         let rule = pair.as_rule();
         let mut inner = pair.clone().into_inner();
-        
+
         match rule {
             Rule::expression => {
                 if let Some(first) = inner.next() {
                     return Self::parse_expression(first);
                 }
-                Ok(Expression::Literal(LiteralValue::Undefined, Span::default()))
+                Ok(Expression::Literal(
+                    LiteralValue::Undefined,
+                    Span::default(),
+                ))
             }
             Rule::ternary => {
                 let exprs: Vec<_> = inner
@@ -448,37 +463,46 @@ impl Parser {
                 } else if !exprs.is_empty() {
                     Self::parse_expression(exprs[0].clone())
                 } else {
-                    Ok(Expression::Literal(LiteralValue::Undefined, Span::default()))
+                    Ok(Expression::Literal(
+                        LiteralValue::Undefined,
+                        Span::default(),
+                    ))
                 }
             }
 
             Rule::logic_or => Self::parse_binary_chain(pair, BinaryOp::LogicalOr),
             Rule::logic_and => Self::parse_binary_chain(pair, BinaryOp::LogicalAnd),
-            Rule::equality => Self::parse_binary_chain_with_ops(pair, &[
-                ("==", BinaryOp::Equal),
-                ("!=", BinaryOp::NotEqual),
-            ]),
-            Rule::comparison => Self::parse_binary_chain_with_ops(pair, &[
-                ("<", BinaryOp::Less),
-                (">", BinaryOp::Greater),
-                ("<=", BinaryOp::LessEqual),
-                (">=", BinaryOp::GreaterEqual),
-            ]),
+            Rule::equality => Self::parse_binary_chain_with_ops(
+                pair,
+                &[("==", BinaryOp::Equal), ("!=", BinaryOp::NotEqual)],
+            ),
+            Rule::comparison => Self::parse_binary_chain_with_ops(
+                pair,
+                &[
+                    ("<", BinaryOp::Less),
+                    (">", BinaryOp::Greater),
+                    ("<=", BinaryOp::LessEqual),
+                    (">=", BinaryOp::GreaterEqual),
+                ],
+            ),
             Rule::binary_or => Self::parse_binary_chain(pair, BinaryOp::BinaryOr),
             Rule::binary_and => Self::parse_binary_chain(pair, BinaryOp::BinaryAnd),
-            Rule::shift => Self::parse_binary_chain_with_ops(pair, &[
-                ("<<", BinaryOp::ShiftLeft),
-                (">>", BinaryOp::ShiftRight),
-            ]),
-            Rule::addition => Self::parse_binary_chain_with_ops(pair, &[
-                ("+", BinaryOp::Plus),
-                ("-", BinaryOp::Minus),
-            ]),
-            Rule::multiplication => Self::parse_binary_chain_with_ops(pair, &[
-                ("*", BinaryOp::Multiply),
-                ("/", BinaryOp::Divide),
-                ("%", BinaryOp::Modulo),
-            ]),
+            Rule::shift => Self::parse_binary_chain_with_ops(
+                pair,
+                &[("<<", BinaryOp::ShiftLeft), (">>", BinaryOp::ShiftRight)],
+            ),
+            Rule::addition => Self::parse_binary_chain_with_ops(
+                pair,
+                &[("+", BinaryOp::Plus), ("-", BinaryOp::Minus)],
+            ),
+            Rule::multiplication => Self::parse_binary_chain_with_ops(
+                pair,
+                &[
+                    ("*", BinaryOp::Multiply),
+                    ("/", BinaryOp::Divide),
+                    ("%", BinaryOp::Modulo),
+                ],
+            ),
             Rule::power => Self::parse_power(pair),
             Rule::unary => Self::parse_unary(pair),
             Rule::postfix => Self::parse_postfix(pair),
@@ -489,14 +513,17 @@ impl Parser {
             )),
             Rule::range => Self::parse_range(pair),
             Rule::vector => Self::parse_vector(pair),
-            _ => Ok(Expression::Literal(LiteralValue::Undefined, Span::default())),
+            _ => Ok(Expression::Literal(
+                LiteralValue::Undefined,
+                Span::default(),
+            )),
         }
     }
-    
+
     fn parse_binary_chain(pair: Pair<Rule>, op: BinaryOp) -> Result<Expression> {
         let mut inner = pair.clone().into_inner();
         let mut left = Self::parse_expression(inner.next().unwrap())?;
-        
+
         while let Some(_op_token) = inner.next() {
             if let Some(right_pair) = inner.next() {
                 let right = Self::parse_expression(right_pair)?;
@@ -508,14 +535,17 @@ impl Parser {
                 );
             }
         }
-        
+
         Ok(left)
     }
-    
-    fn parse_binary_chain_with_ops(pair: Pair<Rule>, ops: &[(&str, BinaryOp)]) -> Result<Expression> {
+
+    fn parse_binary_chain_with_ops(
+        pair: Pair<Rule>,
+        ops: &[(&str, BinaryOp)],
+    ) -> Result<Expression> {
         let mut inner = pair.clone().into_inner();
         let mut left = Self::parse_expression(inner.next().unwrap())?;
-        
+
         while let Some(right_pair) = inner.next() {
             let op_str = right_pair.as_str();
             let op = ops.iter().find(|(s, _)| *s == op_str).map(|(_, o)| *o);
@@ -529,15 +559,15 @@ impl Parser {
                 );
             }
         }
-        
+
         Ok(left)
     }
-    
+
     fn parse_unary(pair: Pair<Rule>) -> Result<Expression> {
         let span = Self::pest_span_to_span(pair.as_span());
         let mut operators = Vec::new();
         let mut expr = None;
-        
+
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::postfix | Rule::unary => {
@@ -555,7 +585,7 @@ impl Parser {
                 _ => {}
             }
         }
-        
+
         let mut expr = expr.ok_or_else(|| anyhow::anyhow!("Empty unary expression"))?;
         for op in operators.into_iter().rev() {
             expr = Expression::UnaryOp(op, Box::new(expr), span);
@@ -578,11 +608,11 @@ impl Parser {
             Ok(left)
         }
     }
-    
+
     fn parse_postfix(pair: Pair<Rule>) -> Result<Expression> {
         let mut base_expr = None;
         let span = Self::pest_span_to_span(pair.as_span());
-        
+
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::atom => {
@@ -654,10 +684,10 @@ impl Parser {
                 _ => {}
             }
         }
-        
+
         base_expr.ok_or_else(|| anyhow::anyhow!("Empty postfix expression"))
     }
-    
+
     fn parse_atom(pair: Pair<Rule>) -> Result<Expression> {
         for inner in pair.into_inner() {
             // eprintln!("DEBUG parse_atom: inner rule = {:?}, text = {:?}", inner.as_rule(), inner.as_str());
@@ -673,12 +703,16 @@ impl Parser {
                 _ => return Self::parse_expression(inner),
             }
         }
-        Ok(Expression::Literal(LiteralValue::Undefined, Span::default()))
+        Ok(Expression::Literal(
+            LiteralValue::Undefined,
+            Span::default(),
+        ))
     }
 
     fn parse_if_expression(pair: Pair<Rule>) -> Result<Expression> {
         let span = Self::pest_span_to_span(pair.as_span());
-        let expressions = pair.into_inner()
+        let expressions = pair
+            .into_inner()
             .filter(|inner| matches!(inner.as_rule(), Rule::expression | Rule::if_expr))
             .map(|inner| {
                 if inner.as_rule() == Rule::if_expr {
@@ -703,7 +737,9 @@ impl Parser {
                 span,
             })
         } else {
-            Err(anyhow::anyhow!("if expression requires a condition and value"))
+            Err(anyhow::anyhow!(
+                "if expression requires a condition and value"
+            ))
         }
     }
 
@@ -733,12 +769,12 @@ impl Parser {
             span,
         })
     }
-    
+
     fn parse_let_expr(pair: Pair<Rule>) -> Result<Expression> {
         let mut args = Vec::new();
         let mut body = None;
         let span = Self::pest_span_to_span(pair.as_span());
-        
+
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::let_bindings => {
@@ -764,17 +800,17 @@ impl Parser {
                 _ => {}
             }
         }
-        
+
         Ok(Expression::Let {
             args,
             body: Box::new(body.ok_or_else(|| anyhow::anyhow!("Missing let body"))?),
             span,
         })
     }
-    
+
     fn parse_literal(pair: Pair<Rule>) -> Result<Expression> {
         let span = Self::pest_span_to_span(pair.as_span());
-        
+
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::boolean => {
@@ -794,15 +830,15 @@ impl Parser {
                 _ => {}
             }
         }
-        
+
         Ok(Expression::Literal(LiteralValue::Undefined, span))
     }
-    
+
     fn parse_number(pair: Pair<Rule>) -> Result<Expression> {
         let span = Self::pest_span_to_span(pair.as_span());
         let text = pair.as_str().trim();
         // eprintln!("DEBUG parse_number: text = {:?}", text);
-        
+
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::hex_number => {
@@ -820,13 +856,13 @@ impl Parser {
                 _ => {}
             }
         }
-        
+
         Ok(Expression::Literal(LiteralValue::Number(0.0), span))
     }
-    
+
     fn parse_string(pair: Pair<Rule>) -> Result<String> {
         let text = pair.as_str();
-        let content = &text[1..text.len()-1];
+        let content = &text[1..text.len() - 1];
         let mut value = String::new();
         let mut chars = content.chars();
         while let Some(ch) = chars.next() {
@@ -835,7 +871,8 @@ impl Parser {
                 continue;
             }
 
-            let escaped = chars.next()
+            let escaped = chars
+                .next()
                 .ok_or_else(|| anyhow::anyhow!("Incomplete string escape"))?;
             match escaped {
                 'n' => value.push('\n'),
@@ -848,7 +885,9 @@ impl Parser {
                     // sequence just drops the backslash (`"\0"` -> `"0"`).
                     let width = if escaped == 'x' { 2 } else { 4 };
                     let hex: String = chars.as_str().chars().take(width).collect();
-                    let codepoint = if hex.chars().count() == width && hex.chars().all(|c| c.is_ascii_hexdigit()) {
+                    let codepoint = if hex.chars().count() == width
+                        && hex.chars().all(|c| c.is_ascii_hexdigit())
+                    {
                         u32::from_str_radix(&hex, 16).ok()
                     } else {
                         None
@@ -869,10 +908,11 @@ impl Parser {
         }
         Ok(value)
     }
-    
+
     fn parse_range(pair: Pair<Rule>) -> Result<Expression> {
         let span = Self::pest_span_to_span(pair.as_span());
-        let expressions: Vec<_> = pair.into_inner()
+        let expressions: Vec<_> = pair
+            .into_inner()
             .map(Self::parse_expression)
             .collect::<Result<Vec<_>>>()?;
         let (start, step, end) = match expressions.as_slice() {
@@ -880,7 +920,7 @@ impl Parser {
             [start, step, end] => (start.clone(), Some(Box::new(step.clone())), end.clone()),
             _ => return Err(anyhow::anyhow!("Range requires two or three expressions")),
         };
-        
+
         Ok(Expression::Range {
             start: Box::new(start),
             step,
@@ -888,11 +928,11 @@ impl Parser {
             span,
         })
     }
-    
+
     fn parse_vector(pair: Pair<Rule>) -> Result<Expression> {
         let span = Self::pest_span_to_span(pair.as_span());
         let mut elements = Vec::new();
-        
+
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::vector_element => {
@@ -907,7 +947,7 @@ impl Parser {
                 _ => {}
             }
         }
-        
+
         Ok(Expression::Vector(elements, span))
     }
 
@@ -933,7 +973,9 @@ impl Parser {
                                     for item in binding.into_inner() {
                                         match item.as_rule() {
                                             Rule::identifier => name = item.as_str().to_string(),
-                                            Rule::expression => value = Some(Self::parse_expression(item)?),
+                                            Rule::expression => {
+                                                value = Some(Self::parse_expression(item)?)
+                                            }
                                             _ => {}
                                         }
                                     }
@@ -949,7 +991,10 @@ impl Parser {
                 _ => {}
             }
         }
-        let mut body = expressions.into_iter().next().ok_or_else(|| anyhow::anyhow!("Missing for body"))?;
+        let mut body = expressions
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Missing for body"))?;
         if !let_args.is_empty() {
             body = Expression::Let {
                 args: let_args,
@@ -1008,7 +1053,9 @@ impl Parser {
                                     for item in binding.into_inner() {
                                         match item.as_rule() {
                                             Rule::identifier => name = item.as_str().to_string(),
-                                            Rule::expression => value = Some(Self::parse_expression(item)?),
+                                            Rule::expression => {
+                                                value = Some(Self::parse_expression(item)?)
+                                            }
                                             _ => {}
                                         }
                                     }
@@ -1025,7 +1072,10 @@ impl Parser {
             }
         }
 
-        let mut body = expressions.into_iter().next().ok_or_else(|| anyhow::anyhow!("Missing for_c body"))?;
+        let mut body = expressions
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("Missing for_c body"))?;
 
         if !let_args.is_empty() {
             body = Expression::Let {
@@ -1058,12 +1108,11 @@ impl Parser {
         })
     }
 
-
     fn parse_assert_expr(pair: Pair<Rule>) -> Result<Expression> {
         let mut args = Vec::new();
         let mut body = None;
         let span = Self::pest_span_to_span(pair.as_span());
-        
+
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::arguments => {
@@ -1081,19 +1130,19 @@ impl Parser {
                 _ => {}
             }
         }
-        
+
         Ok(Expression::Assert {
             args,
             body: body.map(Box::new),
             span,
         })
     }
-    
+
     fn parse_echo_expr(pair: Pair<Rule>) -> Result<Expression> {
         let mut args = Vec::new();
         let mut body = None;
         let span = Self::pest_span_to_span(pair.as_span());
-        
+
         for inner in pair.into_inner() {
             match inner.as_rule() {
                 Rule::arguments => {
@@ -1111,7 +1160,7 @@ impl Parser {
                 _ => {}
             }
         }
-        
+
         Ok(Expression::Echo {
             args,
             body: body.map(Box::new),
@@ -1120,13 +1169,10 @@ impl Parser {
     }
 }
 
-
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_parse_simple() {
         let input = "cube(10);";
@@ -1134,7 +1180,7 @@ mod tests {
         println!("Result: {:?}", result);
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_parse_module() {
         let input = "module foo() { cube(10); }";
@@ -1142,7 +1188,7 @@ mod tests {
         println!("Result: {:?}", result);
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_parse_function() {
         let input = "function foo(x) = x + 1;";
@@ -1150,7 +1196,7 @@ mod tests {
         println!("Result: {:?}", result);
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_parse_assignment() {
         let input = "x = 10;";
@@ -1158,7 +1204,7 @@ mod tests {
         println!("Result: {:?}", result);
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_parse_expressions() {
         let input = "x = 1 + 2 * 3;";
@@ -1166,7 +1212,7 @@ mod tests {
         println!("Result: {:?}", result);
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_parse_vector() {
         let input = "x = [1, 2, 3];";
@@ -1174,7 +1220,7 @@ mod tests {
         println!("Result: {:?}", result);
         assert!(result.is_ok());
     }
-    
+
     #[test]
     fn test_parse_if_else_if() {
         let input = "x = if (fa == 0) a else if (fa * fb < 0) root_find(f, a, b);";
@@ -1206,8 +1252,14 @@ mod tests {
         if let crate::ast::Statement::Assignment(assign) = &parsed.statements[0] {
             if let Some(crate::ast::Expression::BinaryOp(op, left, right, _)) = &assign.value {
                 assert_eq!(*op, crate::ast::BinaryOp::LogicalAnd);
-                assert!(matches!(**left, crate::ast::Expression::Literal(crate::ast::LiteralValue::Bool(true), _)));
-                assert!(matches!(**right, crate::ast::Expression::Literal(crate::ast::LiteralValue::Bool(true), _)));
+                assert!(matches!(
+                    **left,
+                    crate::ast::Expression::Literal(crate::ast::LiteralValue::Bool(true), _)
+                ));
+                assert!(matches!(
+                    **right,
+                    crate::ast::Expression::Literal(crate::ast::LiteralValue::Bool(true), _)
+                ));
             } else {
                 panic!("Expected BinaryOp");
             }
@@ -1222,12 +1274,17 @@ mod tests {
             if let Some(crate::ast::Expression::Vector(elems, _)) = &assign.value {
                 // OpenSCAD drops empty elements: `echo([1,,3])` prints `[1, 3]`.
                 assert_eq!(elems.len(), 2);
-                assert!(matches!(elems[0], crate::ast::Expression::Literal(crate::ast::LiteralValue::Number(_), _)));
-                assert!(matches!(elems[1], crate::ast::Expression::Literal(crate::ast::LiteralValue::Number(_), _)));
+                assert!(matches!(
+                    elems[0],
+                    crate::ast::Expression::Literal(crate::ast::LiteralValue::Number(_), _)
+                ));
+                assert!(matches!(
+                    elems[1],
+                    crate::ast::Expression::Literal(crate::ast::LiteralValue::Number(_), _)
+                ));
             } else {
                 panic!("Expected Vector");
             }
         }
     }
 }
-

@@ -1,10 +1,10 @@
 #[cfg(test)]
 mod tests {
+    use crate::interpreter::{Environment, Executor, Value};
     use crate::parser::Parser;
-    use crate::interpreter::{Executor, Environment, Value};
-    use std::rc::Rc;
     use std::fs;
     use std::path::PathBuf;
+    use std::rc::Rc;
 
     fn eval_source(input: &str) -> Result<Rc<Environment>, String> {
         let parsed = Parser::parse(input).map_err(|e| format!("Parse error: {:?}", e))?;
@@ -48,40 +48,50 @@ mod tests {
     fn test_bosll2_type_and_list_builtins() {
         let env = eval_source(
             "a = [is_def(undef), is_int(2), is_finite(2), is_nan(0), is_vector([1]), last([3,4])];",
-        ).unwrap();
-        assert_eq!(env.get("a"), Some(crate::interpreter::Value::Vector(vec![
-            crate::interpreter::Value::Bool(false),
-            crate::interpreter::Value::Bool(true),
-            crate::interpreter::Value::Bool(true),
-            crate::interpreter::Value::Bool(false),
-            crate::interpreter::Value::Bool(true),
-            crate::interpreter::Value::Number(4.0),
-        ])));
+        )
+        .unwrap();
+        assert_eq!(
+            env.get("a"),
+            Some(crate::interpreter::Value::Vector(vec![
+                crate::interpreter::Value::Bool(false),
+                crate::interpreter::Value::Bool(true),
+                crate::interpreter::Value::Bool(true),
+                crate::interpreter::Value::Bool(false),
+                crate::interpreter::Value::Bool(true),
+                crate::interpreter::Value::Number(4.0),
+            ]))
+        );
     }
 
     #[test]
     fn test_eval_vector() {
         let input = "x = [1, 2, 3];";
         let env = eval_source(input).unwrap();
-        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![
-            crate::interpreter::Value::Number(1.0),
-            crate::interpreter::Value::Number(2.0),
-            crate::interpreter::Value::Number(3.0),
-        ])));
+        assert_eq!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Vector(vec![
+                crate::interpreter::Value::Number(1.0),
+                crate::interpreter::Value::Number(2.0),
+                crate::interpreter::Value::Number(3.0),
+            ]))
+        );
     }
 
     #[test]
     fn test_eval_range() {
         let input = "x = [0:2:10];";
         let env = eval_source(input).unwrap();
-        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![
-            crate::interpreter::Value::Number(0.0),
-            crate::interpreter::Value::Number(2.0),
-            crate::interpreter::Value::Number(4.0),
-            crate::interpreter::Value::Number(6.0),
-            crate::interpreter::Value::Number(8.0),
-            crate::interpreter::Value::Number(10.0),
-        ])));
+        assert_eq!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Vector(vec![
+                crate::interpreter::Value::Number(0.0),
+                crate::interpreter::Value::Number(2.0),
+                crate::interpreter::Value::Number(4.0),
+                crate::interpreter::Value::Number(6.0),
+                crate::interpreter::Value::Number(8.0),
+                crate::interpreter::Value::Number(10.0),
+            ]))
+        );
     }
 
     #[test]
@@ -109,7 +119,11 @@ mod tests {
         let mut exec = Executor::new(Rc::new(Environment::new()));
         exec.execute_source(&parsed).unwrap();
         let mesh = exec.build_mesh().unwrap();
-        let max_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::NEG_INFINITY, f64::max);
+        let max_x = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[0])
+            .fold(f64::NEG_INFINITY, f64::max);
         assert_eq!(max_x, 3.0);
     }
 
@@ -119,7 +133,10 @@ mod tests {
         let parsed = Parser::parse(input);
         println!("Parse result: {:?}", parsed);
         let env = eval_source(input).unwrap();
-        assert!(matches!(env.get("x"), Some(crate::interpreter::Value::Number(_))));
+        assert!(matches!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Number(_))
+        ));
     }
 
     #[test]
@@ -156,48 +173,63 @@ mod tests {
     #[test]
     fn test_for_expression() {
         let env = eval_source("x = [for (i = [1:3]) i * 2];").unwrap();
-        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![
-            crate::interpreter::Value::Number(2.0),
-            crate::interpreter::Value::Number(4.0),
-            crate::interpreter::Value::Number(6.0),
-        ])));
+        assert_eq!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Vector(vec![
+                crate::interpreter::Value::Number(2.0),
+                crate::interpreter::Value::Number(4.0),
+                crate::interpreter::Value::Number(6.0),
+            ]))
+        );
     }
 
     #[test]
     fn test_filtered_for_expression() {
         let env = eval_source("x = [for (i = [0:4]) if (i % 2 == 0) i];").unwrap();
-        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![
-            crate::interpreter::Value::Number(0.0),
-            crate::interpreter::Value::Number(2.0),
-            crate::interpreter::Value::Number(4.0),
-        ])));
+        assert_eq!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Vector(vec![
+                crate::interpreter::Value::Number(0.0),
+                crate::interpreter::Value::Number(2.0),
+                crate::interpreter::Value::Number(4.0),
+            ]))
+        );
     }
 
     #[test]
     fn test_if_expression_without_else_filters_undef() {
         let env = eval_source("x = [if (false) 1, if (true) 2];").unwrap();
-        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![
-            crate::interpreter::Value::Number(2.0),
-        ])));
+        assert_eq!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Vector(vec![
+                crate::interpreter::Value::Number(2.0),
+            ]))
+        );
     }
 
     #[test]
     fn test_nested_if_expression_else_if() {
         let env = eval_source("x = [if (false) 1 else if (true) 2];").unwrap();
-        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![
-            crate::interpreter::Value::Number(2.0),
-        ])));
+        assert_eq!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Vector(vec![
+                crate::interpreter::Value::Number(2.0),
+            ]))
+        );
     }
 
     #[test]
     fn test_nested_for_expression() {
         let env = eval_source("x = [for (i = [1:2], j = [10:11]) i + j];").unwrap();
-        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![
-            crate::interpreter::Value::Number(11.0),
-            crate::interpreter::Value::Number(12.0),
-            crate::interpreter::Value::Number(12.0),
-            crate::interpreter::Value::Number(13.0),
-        ])));
+        assert_eq!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Vector(vec![
+                crate::interpreter::Value::Number(11.0),
+                crate::interpreter::Value::Number(12.0),
+                crate::interpreter::Value::Number(12.0),
+                crate::interpreter::Value::Number(13.0),
+            ]))
+        );
     }
 
     #[test]
@@ -215,7 +247,10 @@ mod tests {
         let mut exec = Executor::new(Rc::new(Environment::new()));
         exec.execute_source(&parsed).unwrap();
         let mesh = exec.build_mesh().unwrap();
-        assert!(mesh.vertices.iter().any(|vertex| vertex[0] > 1.0 && vertex[1] > 1.0));
+        assert!(mesh
+            .vertices
+            .iter()
+            .any(|vertex| vertex[0] > 1.0 && vertex[1] > 1.0));
     }
 
     #[test]
@@ -224,19 +259,26 @@ mod tests {
         let mut exec = Executor::new(Rc::new(Environment::new()));
         exec.execute_source(&parsed).unwrap();
         let mesh = exec.build_mesh().unwrap();
-        let max_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::NEG_INFINITY, f64::max);
+        let max_x = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[0])
+            .fold(f64::NEG_INFINITY, f64::max);
         assert_eq!(max_x, 2.0);
     }
 
     #[test]
     fn test_each_expression() {
         let env = eval_source("x = each [[1, 2], [3, 4]];").unwrap();
-        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Vector(vec![
-            crate::interpreter::Value::Number(1.0),
-            crate::interpreter::Value::Number(2.0),
-            crate::interpreter::Value::Number(3.0),
-            crate::interpreter::Value::Number(4.0),
-        ])));
+        assert_eq!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Vector(vec![
+                crate::interpreter::Value::Number(1.0),
+                crate::interpreter::Value::Number(2.0),
+                crate::interpreter::Value::Number(3.0),
+                crate::interpreter::Value::Number(4.0),
+            ]))
+        );
     }
 
     #[test]
@@ -276,7 +318,10 @@ mod tests {
             let mut exec = Executor::new(Rc::new(Environment::new()));
             exec.execute_source(&parsed).unwrap();
             if let Some(mesh) = exec.build_mesh() {
-                assert!(mesh.faces.is_empty(), "invalid input produced geometry: {input}");
+                assert!(
+                    mesh.faces.is_empty(),
+                    "invalid input produced geometry: {input}"
+                );
             }
 
             // The run continues: a valid primitive after it still renders.
@@ -286,7 +331,10 @@ mod tests {
             let mesh = exec
                 .build_mesh()
                 .unwrap_or_else(|| panic!("valid primitive after {input} produced no mesh"));
-            assert!(!mesh.faces.is_empty(), "run aborted after invalid input: {input}");
+            assert!(
+                !mesh.faces.is_empty(),
+                "run aborted after invalid input: {input}"
+            );
         }
     }
 
@@ -325,7 +373,8 @@ mod tests {
             let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
             (ab[0] * ac[1] - ab[1] * ac[0]).abs()
                 + (ab[1] * ac[2] - ab[2] * ac[1]).abs()
-                + (ab[2] * ac[0] - ab[0] * ac[2]).abs() > 1e-9
+                + (ab[2] * ac[0] - ab[0] * ac[2]).abs()
+                > 1e-9
         }));
     }
 
@@ -362,7 +411,9 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let stl = dir.join("triangle.stl");
         let main = dir.join("main.scad");
-        fs::write(&stl, "solid test\n\
+        fs::write(
+            &stl,
+            "solid test\n\
             facet normal 0 0 1\n\
               outer loop\n\
                 vertex 0 0 0\n\
@@ -370,7 +421,9 @@ mod tests {
                 vertex 0 1 0\n\
               endloop\n\
             endfacet\n\
-            endsolid test\n").unwrap();
+            endsolid test\n",
+        )
+        .unwrap();
         fs::write(&main, "import(\"triangle.stl\");").unwrap();
 
         let source = Parser::parse_file(&main).unwrap();
@@ -385,12 +438,14 @@ mod tests {
 
     #[test]
     fn test_imports_obj_relative_to_source() {
-        let directory = std::env::temp_dir().join(format!("openscad-rust-obj-{}", std::process::id()));
+        let directory =
+            std::env::temp_dir().join(format!("openscad-rust-obj-{}", std::process::id()));
         std::fs::create_dir_all(&directory).unwrap();
         std::fs::write(
             directory.join("shape.obj"),
             "v 0 0 0\nv 2 0 0\nv 0 2 0\nf 1/1 2/2 3/3\n",
-        ).unwrap();
+        )
+        .unwrap();
         let source = directory.join("main.scad");
         std::fs::write(&source, "import(\"shape.obj\");").unwrap();
 
@@ -408,13 +463,22 @@ mod tests {
 
     #[test]
     fn test_sibling_primitives_are_unioned() {
-        let parsed = Parser::parse("cube([1, 1, 1]); translate([2, 0, 0]) cube([1, 1, 1]);").unwrap();
+        let parsed =
+            Parser::parse("cube([1, 1, 1]); translate([2, 0, 0]) cube([1, 1, 1]);").unwrap();
         let env = Rc::new(Environment::new());
         let mut exec = Executor::new(env);
         exec.execute_source(&parsed).unwrap();
         let mesh = exec.build_mesh().unwrap();
-        let min_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::INFINITY, f64::min);
-        let max_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::NEG_INFINITY, f64::max);
+        let min_x = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[0])
+            .fold(f64::INFINITY, f64::min);
+        let max_x = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[0])
+            .fold(f64::NEG_INFINITY, f64::max);
         assert!((min_x - 0.0).abs() < 1e-9);
         assert!((max_x - 3.0).abs() < 1e-9);
     }
@@ -427,10 +491,26 @@ mod tests {
         let mut exec = Executor::new(Rc::new(Environment::new()));
         exec.execute_source(&parsed).unwrap();
         let mesh = exec.build_mesh().unwrap();
-        let min_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::INFINITY, f64::min);
-        let max_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::NEG_INFINITY, f64::max);
-        let min_z = mesh.vertices.iter().map(|vertex| vertex[2]).fold(f64::INFINITY, f64::min);
-        let max_z = mesh.vertices.iter().map(|vertex| vertex[2]).fold(f64::NEG_INFINITY, f64::max);
+        let min_x = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[0])
+            .fold(f64::INFINITY, f64::min);
+        let max_x = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[0])
+            .fold(f64::NEG_INFINITY, f64::max);
+        let min_z = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[2])
+            .fold(f64::INFINITY, f64::min);
+        let max_z = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[2])
+            .fold(f64::NEG_INFINITY, f64::max);
         assert!((min_x + 5.0).abs() < 1e-9);
         assert!((max_x - 5.0).abs() < 1e-9);
         assert!((min_z + 5.0).abs() < 1e-9);
@@ -486,12 +566,16 @@ mod tests {
         exec.execute_source(&parsed).unwrap();
         let mesh = exec.build_mesh().unwrap();
         assert_eq!(mesh.faces.len(), 8);
-        let area = mesh.faces.iter().map(|face| {
-            let a = mesh.vertices[face[0]];
-            let b = mesh.vertices[face[1]];
-            let c = mesh.vertices[face[2]];
-            ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs() / 2.0
-        }).sum::<f64>();
+        let area = mesh
+            .faces
+            .iter()
+            .map(|face| {
+                let a = mesh.vertices[face[0]];
+                let b = mesh.vertices[face[1]];
+                let c = mesh.vertices[face[2]];
+                ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs() / 2.0
+            })
+            .sum::<f64>();
         assert!((area - 15.0).abs() < 1e-9, "triangulated area was {area}");
         let hole_center = [1.5, 1.5];
         let contains = |point: [f64; 2], face: &[usize; 3]| {
@@ -527,23 +611,22 @@ mod tests {
         ).unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));
         exec.execute_source(&parsed).unwrap();
-        assert!(exec.build_mesh().map(|mesh| !mesh.faces.is_empty()).unwrap_or(false));
+        assert!(exec
+            .build_mesh()
+            .map(|mesh| !mesh.faces.is_empty())
+            .unwrap_or(false));
     }
 
     #[test]
     fn test_invalid_polygon_geometry_reports_error() {
-        let parsed = Parser::parse(
-            "polygon(points = [[0,0], [4,4], [0,3], [3,0]]);",
-        ).unwrap();
+        let parsed = Parser::parse("polygon(points = [[0,0], [4,4], [0,3], [3,0]]);").unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));
         exec.execute_source(&parsed).unwrap();
         if let Some(mesh) = exec.build_mesh() {
             assert!(mesh.faces.is_empty());
         }
 
-        let parsed = Parser::parse(
-            "polygon(points = [[0,0], [1,0], [2,0]]);",
-        ).unwrap();
+        let parsed = Parser::parse("polygon(points = [[0,0], [1,0], [2,0]]);").unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));
         exec.execute_source(&parsed).unwrap();
         if let Some(mesh) = exec.build_mesh() {
@@ -554,11 +637,7 @@ mod tests {
     #[test]
     fn test_stl_export_skips_invalid_faces() {
         let mesh = crate::csg::Mesh {
-            vertices: vec![
-                [0.0, 0.0, 0.0],
-                [1.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-            ],
+            vertices: vec![[0.0, 0.0, 0.0], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0]],
             faces: vec![[0, 1, 2], [0, 2, 9], [0, 0, 1]],
             normals: Vec::new(),
         };
@@ -590,21 +669,36 @@ mod tests {
         let mut exec = Executor::new(Rc::new(Environment::new()));
         exec.execute_source(&parsed).unwrap();
         let mesh = exec.build_mesh().unwrap();
-        let min_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::INFINITY, f64::min);
+        let min_x = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[0])
+            .fold(f64::INFINITY, f64::min);
         assert_eq!(min_x, 2.0);
     }
 
     #[test]
     fn test_multmatrix_transforms_child_geometry() {
-        let parsed = Parser::parse(
-            "multmatrix([[1,0,0,2],[0,1,0,3],[0,0,1,4],[0,0,0,1]]) cube();",
-        ).unwrap();
+        let parsed =
+            Parser::parse("multmatrix([[1,0,0,2],[0,1,0,3],[0,0,1,4],[0,0,0,1]]) cube();").unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));
         exec.execute_source(&parsed).unwrap();
         let mesh = exec.build_mesh().unwrap();
-        let min_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::INFINITY, f64::min);
-        let min_y = mesh.vertices.iter().map(|vertex| vertex[1]).fold(f64::INFINITY, f64::min);
-        let min_z = mesh.vertices.iter().map(|vertex| vertex[2]).fold(f64::INFINITY, f64::min);
+        let min_x = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[0])
+            .fold(f64::INFINITY, f64::min);
+        let min_y = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[1])
+            .fold(f64::INFINITY, f64::min);
+        let min_z = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[2])
+            .fold(f64::INFINITY, f64::min);
         assert_eq!([min_x, min_y, min_z], [2.0, 3.0, 4.0]);
     }
 
@@ -617,10 +711,12 @@ mod tests {
                     center: false,
                 }),
                 crate::csg::CsgNode::Transform {
-                    child: Box::new(crate::csg::CsgNode::Primitive(crate::csg::Primitive::Cube {
-                        size: [1.0, 1.0, 1.0],
-                        center: false,
-                    })),
+                    child: Box::new(crate::csg::CsgNode::Primitive(
+                        crate::csg::Primitive::Cube {
+                            size: [1.0, 1.0, 1.0],
+                            center: false,
+                        },
+                    )),
                     translate: Some([3.0, 0.0, 0.0]),
                     rotate: None,
                     scale: None,
@@ -628,9 +724,18 @@ mod tests {
                     matrix: None,
                 },
             ],
-        }.to_mesh();
-        let min_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::INFINITY, f64::min);
-        let max_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::NEG_INFINITY, f64::max);
+        }
+        .to_mesh();
+        let min_x = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[0])
+            .fold(f64::INFINITY, f64::min);
+        let max_x = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[0])
+            .fold(f64::NEG_INFINITY, f64::max);
         assert_eq!(min_x, 0.0);
         assert_eq!(max_x, 4.0);
         assert!(!mesh.faces.is_empty());
@@ -649,42 +754,72 @@ mod tests {
                     center: false,
                 }),
             ],
-        }.to_mesh();
-        let max_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::NEG_INFINITY, f64::max);
-        let max_y = mesh.vertices.iter().map(|vertex| vertex[1]).fold(f64::NEG_INFINITY, f64::max);
-        let max_z = mesh.vertices.iter().map(|vertex| vertex[2]).fold(f64::NEG_INFINITY, f64::max);
+        }
+        .to_mesh();
+        let max_x = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[0])
+            .fold(f64::NEG_INFINITY, f64::max);
+        let max_y = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[1])
+            .fold(f64::NEG_INFINITY, f64::max);
+        let max_z = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[2])
+            .fold(f64::NEG_INFINITY, f64::max);
         assert_eq!([max_x, max_y, max_z], [3.0, 3.0, 3.0]);
         assert!(!mesh.faces.is_empty());
     }
 
     #[test]
     fn test_text_builds_planar_geometry_and_extrudes() {
-        let parsed = Parser::parse(
-            "linear_extrude(height = 2) text(\"CAD\", size = 5);",
-        ).unwrap();
+        let parsed = Parser::parse("linear_extrude(height = 2) text(\"CAD\", size = 5);").unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));
         exec.execute_source(&parsed).unwrap();
         let mesh = exec.build_mesh().unwrap();
         assert_eq!(mesh.vertices.len(), 24);
         assert_eq!(mesh.faces.len(), 36);
         assert_eq!(
-            mesh.vertices.iter().map(|vertex| vertex[2]).fold(f64::NEG_INFINITY, f64::max),
+            mesh.vertices
+                .iter()
+                .map(|vertex| vertex[2])
+                .fold(f64::NEG_INFINITY, f64::max),
             2.0
         );
     }
 
     #[test]
     fn test_text_alignment_positions_geometry() {
-        let parsed = Parser::parse(
-            "text(\"AB\", size = 10, halign = \"center\", valign = \"top\");",
-        ).unwrap();
+        let parsed =
+            Parser::parse("text(\"AB\", size = 10, halign = \"center\", valign = \"top\");")
+                .unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));
         exec.execute_source(&parsed).unwrap();
         let mesh = exec.build_mesh().unwrap();
-        let min_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::INFINITY, f64::min);
-        let max_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::NEG_INFINITY, f64::max);
-        let min_y = mesh.vertices.iter().map(|vertex| vertex[1]).fold(f64::INFINITY, f64::min);
-        let max_y = mesh.vertices.iter().map(|vertex| vertex[1]).fold(f64::NEG_INFINITY, f64::max);
+        let min_x = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[0])
+            .fold(f64::INFINITY, f64::min);
+        let max_x = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[0])
+            .fold(f64::NEG_INFINITY, f64::max);
+        let min_y = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[1])
+            .fold(f64::INFINITY, f64::min);
+        let max_y = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[1])
+            .fold(f64::NEG_INFINITY, f64::max);
         assert_eq!([min_x, max_x, min_y, max_y], [-6.5, 6.5, -10.0, 0.0]);
     }
 
@@ -697,24 +832,44 @@ mod tests {
         let mesh = exec.build_mesh().unwrap();
         assert_eq!(mesh.vertices.len(), 8);
         assert_eq!(mesh.faces.len(), 12);
-        let min_z = mesh.vertices.iter().map(|vertex| vertex[2]).fold(f64::INFINITY, f64::min);
-        let max_z = mesh.vertices.iter().map(|vertex| vertex[2]).fold(f64::NEG_INFINITY, f64::max);
+        let min_z = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[2])
+            .fold(f64::INFINITY, f64::min);
+        let max_z = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[2])
+            .fold(f64::NEG_INFINITY, f64::max);
         assert_eq!(min_z, 0.0);
         assert_eq!(max_z, 3.0);
     }
 
     #[test]
     fn test_linear_extrude_applies_scale_and_twist() {
-        let parsed = Parser::parse(
-            "linear_extrude(height = 2, scale = 2, twist = 90) square([2, 1]);",
-        ).unwrap();
+        let parsed =
+            Parser::parse("linear_extrude(height = 2, scale = 2, twist = 90) square([2, 1]);")
+                .unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));
         exec.execute_source(&parsed).unwrap();
         let mesh = exec.build_mesh().unwrap();
-        let max_z = mesh.vertices.iter().map(|vertex| vertex[2]).fold(f64::NEG_INFINITY, f64::max);
+        let max_z = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[2])
+            .fold(f64::NEG_INFINITY, f64::max);
         assert_eq!(max_z, 2.0);
-        let max_x = mesh.vertices.iter().map(|vertex| vertex[0].abs()).fold(0.0, f64::max);
-        let max_y = mesh.vertices.iter().map(|vertex| vertex[1].abs()).fold(0.0, f64::max);
+        let max_x = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[0].abs())
+            .fold(0.0, f64::max);
+        let max_y = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[1].abs())
+            .fold(0.0, f64::max);
         assert!(max_x > 1.9);
         assert!(max_y > 1.9);
     }
@@ -734,14 +889,20 @@ mod tests {
 
     #[test]
     fn test_rotate_extrude_accepts_positional_angle() {
-        let parsed = Parser::parse(
-            "rotate_extrude(180, $fn = 8) square([1, 1]);",
-        ).unwrap();
+        let parsed = Parser::parse("rotate_extrude(180, $fn = 8) square([1, 1]);").unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));
         exec.execute_source(&parsed).unwrap();
         let mesh = exec.build_mesh().unwrap();
-        let max_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::NEG_INFINITY, f64::max);
-        let min_x = mesh.vertices.iter().map(|vertex| vertex[0]).fold(f64::INFINITY, f64::min);
+        let max_x = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[0])
+            .fold(f64::NEG_INFINITY, f64::max);
+        let min_x = mesh
+            .vertices
+            .iter()
+            .map(|vertex| vertex[0])
+            .fold(f64::INFINITY, f64::min);
         assert!(max_x > 0.9);
         assert!(min_x < -0.9);
     }
@@ -753,13 +914,20 @@ mod tests {
         let library = dir.join("library.scad");
         let main = dir.join("main.scad");
         fs::write(&library, "included_value = 42;").unwrap();
-        fs::write(&main, "include <library.scad>\nresult = included_value + 1;").unwrap();
+        fs::write(
+            &main,
+            "include <library.scad>\nresult = included_value + 1;",
+        )
+        .unwrap();
 
         let source = Parser::parse_file(&main).unwrap();
         let env = Rc::new(Environment::new());
         let mut exec = Executor::new(env.clone());
         exec.execute_source(&source).unwrap();
-        assert_eq!(env.get("result"), Some(crate::interpreter::Value::Number(43.0)));
+        assert_eq!(
+            env.get("result"),
+            Some(crate::interpreter::Value::Number(43.0))
+        );
 
         fs::remove_dir_all(dir).unwrap();
     }
@@ -770,14 +938,21 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         let library = dir.join("library.scad");
         let main = dir.join("main.scad");
-        fs::write(&library, "library_value = 42; function increment(x) = x + 1;").unwrap();
+        fs::write(
+            &library,
+            "library_value = 42; function increment(x) = x + 1;",
+        )
+        .unwrap();
         fs::write(&main, "use <library.scad>\nresult = increment(2);").unwrap();
 
         let source = Parser::parse_file(&main).unwrap();
         let env = Rc::new(Environment::new());
         let mut exec = Executor::new(env.clone());
         exec.execute_source(&source).unwrap();
-        assert_eq!(env.get("result"), Some(crate::interpreter::Value::Number(3.0)));
+        assert_eq!(
+            env.get("result"),
+            Some(crate::interpreter::Value::Number(3.0))
+        );
         assert_eq!(env.get("library_value"), None);
 
         fs::remove_dir_all(dir).unwrap();
@@ -826,13 +1001,19 @@ mod tests {
     #[test]
     fn test_builtin_version() {
         let env = eval_source("x = version();").unwrap();
-        assert!(matches!(env.get("x"), Some(crate::interpreter::Value::Vector(_))));
+        assert!(matches!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Vector(_))
+        ));
     }
 
     #[test]
     fn test_builtin_version_num() {
         let env = eval_source("x = version_num();").unwrap();
-        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Number(20210100.0)));
+        assert_eq!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Number(20210100.0))
+        );
     }
 
     #[test]
@@ -841,16 +1022,23 @@ mod tests {
         assert_eq!(env.get("x"), Some(crate::interpreter::Value::Number(1.0)));
 
         let env = eval_source("x = search(\"z\", \"banana\");").unwrap();
-        assert!(matches!(env.get("x"), Some(crate::interpreter::Value::Undef)));
+        assert!(matches!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Undef)
+        ));
     }
 
     #[test]
     fn test_builtin_search_vector() {
-        let env = eval_source("x = search(\"apple\", [\"banana\", \"apple\", \"cherry\"]);").unwrap();
+        let env =
+            eval_source("x = search(\"apple\", [\"banana\", \"apple\", \"cherry\"]);").unwrap();
         assert_eq!(env.get("x"), Some(crate::interpreter::Value::Number(1.0)));
 
         let env = eval_source("x = search(\"z\", [\"banana\", \"apple\", \"cherry\"]);").unwrap();
-        assert!(matches!(env.get("x"), Some(crate::interpreter::Value::Undef)));
+        assert!(matches!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Undef)
+        ));
 
         let env = eval_source("x = search(\"a\", [\"banana\", \"apple\", \"cherry\"]);").unwrap();
         if let Some(val) = env.get("x") {
@@ -864,13 +1052,16 @@ mod tests {
 
     #[test]
     fn test_phase1_undef_and_defaults() {
-        let parsed = Parser::parse("
+        let parsed = Parser::parse(
+            "
             x = non_existent_var;
             y = 1 + x;
             is_u = is_undef(non_existent_var);
             p = $preview;
             lh = $layer_height;
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         let env = Rc::new(Environment::new());
         let mut exec = Executor::new(env.clone());
         exec.execute_source(&parsed).unwrap();
@@ -883,9 +1074,12 @@ mod tests {
 
     #[test]
     fn test_phase1_2d_vector_transforms() {
-        let parsed = Parser::parse("
+        let parsed = Parser::parse(
+            "
             translate([10, 20]) scale([2, 3]) cube([1, 1, 1]);
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));
         exec.execute_source(&parsed).unwrap();
         let mesh = exec.build_mesh().unwrap();
@@ -895,7 +1089,10 @@ mod tests {
     #[test]
     fn test_builtin_chr_single() {
         let env = eval_source("x = chr(65);").unwrap();
-        assert_eq!(env.get("x"), Some(crate::interpreter::Value::String("A".to_string())));
+        assert_eq!(
+            env.get("x"),
+            Some(crate::interpreter::Value::String("A".to_string()))
+        );
     }
 
     #[test]
@@ -929,10 +1126,7 @@ mod tests {
     #[test]
     fn test_builtin_cross_2d() {
         let env = eval_source("x = cross([1, 0], [0, 1]);").unwrap();
-        assert_eq!(
-            env.get("x"),
-            Some(crate::interpreter::Value::Number(1.0))
-        );
+        assert_eq!(env.get("x"), Some(crate::interpreter::Value::Number(1.0)));
     }
 
     #[test]
@@ -962,58 +1156,86 @@ mod tests {
     #[test]
     fn test_builtin_unit_zero() {
         let env = eval_source("x = unit([0, 0]);").unwrap();
-        assert!(matches!(env.get("x"), Some(crate::interpreter::Value::Undef)));
+        assert!(matches!(
+            env.get("x"),
+            Some(crate::interpreter::Value::Undef)
+        ));
     }
 
     #[test]
     fn test_builtin_lookup() {
-        let env = eval_source("
+        let env = eval_source(
+            "
             table = [[0, 10], [10, 20], [20, 40]];
             v_low = lookup(-5, table);
             v_mid = lookup(5, table);
             v_high = lookup(30, table);
-        ").unwrap();
-        assert_eq!(env.get("v_low"), Some(crate::interpreter::Value::Number(10.0)));
-        assert_eq!(env.get("v_mid"), Some(crate::interpreter::Value::Number(15.0)));
-        assert_eq!(env.get("v_high"), Some(crate::interpreter::Value::Number(40.0)));
+        ",
+        )
+        .unwrap();
+        assert_eq!(
+            env.get("v_low"),
+            Some(crate::interpreter::Value::Number(10.0))
+        );
+        assert_eq!(
+            env.get("v_mid"),
+            Some(crate::interpreter::Value::Number(15.0))
+        );
+        assert_eq!(
+            env.get("v_high"),
+            Some(crate::interpreter::Value::Number(40.0))
+        );
     }
 
     #[test]
     fn test_separate_namespaces() {
-        let env = eval_source("
+        let env = eval_source(
+            "
             function foo(x) = x * 2;
             foo = 100;
             y = foo(foo);
-        ").unwrap();
-        assert_eq!(env.get("foo"), Some(crate::interpreter::Value::Number(100.0)));
+        ",
+        )
+        .unwrap();
+        assert_eq!(
+            env.get("foo"),
+            Some(crate::interpreter::Value::Number(100.0))
+        );
         assert_eq!(env.get("y"), Some(crate::interpreter::Value::Number(200.0)));
     }
 
     #[test]
     fn test_recursion_limit_function() {
-        let res = eval_source("
+        let res = eval_source(
+            "
             function rec(x) = rec(x + 1);
             val = rec(0);
-        ");
+        ",
+        );
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("Recursion detected"));
     }
 
     #[test]
     fn test_recursion_limit_module() {
-        let res = eval_source("
+        let res = eval_source(
+            "
             module rec(x) { rec(x + 1); }
             rec(0);
-        ");
+        ",
+        );
         assert!(res.is_err());
         assert!(res.unwrap_err().contains("Recursion detected"));
     }
 
     #[test]
     fn test_for_c_basic() {
-        let env = eval_source("
+        let env = eval_source(
+            "
             v = [for (i = 0; i < 5; i = i + 1) i * 2];
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         assert_eq!(
             env.get("v"),
             Some(crate::interpreter::Value::Vector(vec![
@@ -1028,10 +1250,13 @@ mod tests {
 
     #[test]
     fn test_for_c_empty_init() {
-        let env = eval_source("
+        let env = eval_source(
+            "
             list = [[1, 2], [3, 4]];
             v = [for (; is_list(list) && len(list) > 0; list = list[0]) len(list)];
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         assert_eq!(
             env.get("v"),
             Some(crate::interpreter::Value::Vector(vec![
@@ -1043,9 +1268,12 @@ mod tests {
 
     #[test]
     fn test_for_c_with_if_filter() {
-        let env = eval_source("
+        let env = eval_source(
+            "
             v = [for (i = 0; i < 5; i = i + 1) if (i % 2 == 0) i];
-        ").unwrap();
+        ",
+        )
+        .unwrap();
         assert_eq!(
             env.get("v"),
             Some(crate::interpreter::Value::Vector(vec![
@@ -1057,10 +1285,6 @@ mod tests {
     }
 
     fn unique_fixture_dir(name: &str) -> PathBuf {
-        std::env::temp_dir().join(format!(
-            "openscad-rust-{}-{}",
-            name,
-            std::process::id()
-        ))
+        std::env::temp_dir().join(format!("openscad-rust-{}-{}", name, std::process::id()))
     }
 }

@@ -1,5 +1,5 @@
-use std::collections::HashMap;
 use crate::interpreter::value::Value;
+use std::collections::HashMap;
 
 type BuiltinFn = fn(Vec<Value>) -> Result<Value, String>;
 
@@ -10,7 +10,7 @@ pub struct Builtins {
 impl Builtins {
     pub fn new() -> Self {
         let mut functions = HashMap::new();
-        
+
         functions.insert("sin".to_string(), builtin_sin as BuiltinFn);
         functions.insert("cos".to_string(), builtin_cos as BuiltinFn);
         functions.insert("tan".to_string(), builtin_tan as BuiltinFn);
@@ -18,14 +18,14 @@ impl Builtins {
         functions.insert("acos".to_string(), builtin_acos as BuiltinFn);
         functions.insert("atan".to_string(), builtin_atan as BuiltinFn);
         functions.insert("atan2".to_string(), builtin_atan2 as BuiltinFn);
-        
+
         functions.insert("sqrt".to_string(), builtin_sqrt as BuiltinFn);
         functions.insert("pow".to_string(), builtin_pow as BuiltinFn);
         functions.insert("exp".to_string(), builtin_exp as BuiltinFn);
         functions.insert("ln".to_string(), builtin_ln as BuiltinFn);
         functions.insert("log".to_string(), builtin_log as BuiltinFn);
         functions.insert("log10".to_string(), builtin_log10 as BuiltinFn);
-        
+
         functions.insert("abs".to_string(), builtin_abs as BuiltinFn);
         functions.insert("floor".to_string(), builtin_floor as BuiltinFn);
         functions.insert("ceil".to_string(), builtin_ceil as BuiltinFn);
@@ -33,15 +33,15 @@ impl Builtins {
         functions.insert("sign".to_string(), builtin_sign as BuiltinFn);
         functions.insert("reverse".to_string(), builtin_reverse as BuiltinFn);
         functions.insert("shuffle".to_string(), builtin_shuffle as BuiltinFn);
-        
+
         functions.insert("min".to_string(), builtin_min as BuiltinFn);
         functions.insert("max".to_string(), builtin_max as BuiltinFn);
-        
+
         functions.insert("len".to_string(), builtin_len as BuiltinFn);
         functions.insert("norm".to_string(), builtin_norm as BuiltinFn);
         functions.insert("cross".to_string(), builtin_cross as BuiltinFn);
         functions.insert("unit".to_string(), builtin_unit as BuiltinFn);
-        
+
         functions.insert("str".to_string(), builtin_str as BuiltinFn);
         functions.insert("chr".to_string(), builtin_chr as BuiltinFn);
         functions.insert("search".to_string(), builtin_search as BuiltinFn);
@@ -49,7 +49,7 @@ impl Builtins {
         functions.insert("version".to_string(), builtin_version as BuiltinFn);
         functions.insert("version_num".to_string(), builtin_version_num as BuiltinFn);
         functions.insert("ident".to_string(), builtin_ident as BuiltinFn);
-        
+
         functions.insert("undef".to_string(), builtin_undef as BuiltinFn);
         functions.insert("is_undef".to_string(), builtin_is_undef as BuiltinFn);
         functions.insert("is_bool".to_string(), builtin_is_bool as BuiltinFn);
@@ -69,10 +69,10 @@ impl Builtins {
         functions.insert("posmod".to_string(), builtin_posmod as BuiltinFn);
         functions.insert("ord".to_string(), builtin_ord as BuiltinFn);
         functions.insert("rands".to_string(), builtin_rands as BuiltinFn);
-        
+
         Self { functions }
     }
-    
+
     pub fn get_function(&self, name: &str) -> Option<BuiltinFn> {
         self.functions.get(name).copied()
     }
@@ -89,10 +89,12 @@ fn expect_vec(args: &[Value], n: usize) -> Result<Vec<Vec<Value>>, String> {
     if args.len() != n {
         return Err(format!("Expected {} arguments, got {}", n, args.len()));
     }
-    args.iter().map(|v| match v {
-        Value::Vector(v) => Ok(v.clone()),
-        _ => Err("Expected vector".into()),
-    }).collect()
+    args.iter()
+        .map(|v| match v {
+            Value::Vector(v) => Ok(v.clone()),
+            _ => Err("Expected vector".into()),
+        })
+        .collect()
 }
 
 fn builtin_sin(args: Vec<Value>) -> Result<Value, String> {
@@ -132,7 +134,9 @@ fn builtin_atan2(args: Vec<Value>) -> Result<Value, String> {
 
 fn builtin_sqrt(args: Vec<Value>) -> Result<Value, String> {
     let nums = expect_num(&args, 1)?;
-    if nums[0] < 0.0 { return Err("sqrt of negative number".into()); }
+    if nums[0] < 0.0 {
+        return Err("sqrt of negative number".into());
+    }
     Ok(Value::Number(nums[0].sqrt()))
 }
 
@@ -148,24 +152,32 @@ fn builtin_exp(args: Vec<Value>) -> Result<Value, String> {
 
 fn builtin_ln(args: Vec<Value>) -> Result<Value, String> {
     let nums = expect_num(&args, 1)?;
-    if nums[0] <= 0.0 { return Err("ln of non-positive number".into()); }
+    if nums[0] <= 0.0 {
+        return Err("ln of non-positive number".into());
+    }
     Ok(Value::Number(nums[0].ln()))
 }
 
 fn builtin_log(args: Vec<Value>) -> Result<Value, String> {
     let nums = expect_num(&args, if args.len() == 1 { 1 } else { 2 })?;
     if args.len() == 1 {
-        if nums[0] <= 0.0 { return Err("log of non-positive number".into()); }
+        if nums[0] <= 0.0 {
+            return Err("log of non-positive number".into());
+        }
         Ok(Value::Number(nums[0].ln()))
     } else {
-        if nums[0] <= 0.0 || nums[1] <= 0.0 { return Err("log of non-positive number".into()); }
+        if nums[0] <= 0.0 || nums[1] <= 0.0 {
+            return Err("log of non-positive number".into());
+        }
         Ok(Value::Number(nums[0].ln() / nums[1].ln()))
     }
 }
 
 fn builtin_log10(args: Vec<Value>) -> Result<Value, String> {
     let nums = expect_num(&args, 1)?;
-    if nums[0] <= 0.0 { return Err("log10 of non-positive number".into()); }
+    if nums[0] <= 0.0 {
+        return Err("log10 of non-positive number".into());
+    }
     Ok(Value::Number(nums[0].log10()))
 }
 
@@ -248,12 +260,24 @@ fn builtin_sign(args: Vec<Value>) -> Result<Value, String> {
         return Err("sign expects 1 argument".into());
     }
     match &args[0] {
-        Value::Number(n) => Ok(Value::Number(if *n > 0.0 { 1.0 } else if *n < 0.0 { -1.0 } else { 0.0 })),
+        Value::Number(n) => Ok(Value::Number(if *n > 0.0 {
+            1.0
+        } else if *n < 0.0 {
+            -1.0
+        } else {
+            0.0
+        })),
         Value::Vector(v) => {
             let mut result = Vec::new();
             for elem in v {
                 if let Value::Number(e) = elem {
-                    result.push(Value::Number(if *e > 0.0 { 1.0 } else if *e < 0.0 { -1.0 } else { 0.0 }));
+                    result.push(Value::Number(if *e > 0.0 {
+                        1.0
+                    } else if *e < 0.0 {
+                        -1.0
+                    } else {
+                        0.0
+                    }));
                 } else {
                     return Err("sign expects vector of numbers".into());
                 }
@@ -311,51 +335,71 @@ fn builtin_shuffle(args: Vec<Value>) -> Result<Value, String> {
 }
 
 fn builtin_min(args: Vec<Value>) -> Result<Value, String> {
-    if args.is_empty() { return Err("min expects at least 1 argument".into()); }
+    if args.is_empty() {
+        return Err("min expects at least 1 argument".into());
+    }
     if args.len() == 1 {
         match &args[0] {
             Value::Vector(v) => {
-                if v.is_empty() { return Err("min expects a non-empty vector".into()); }
+                if v.is_empty() {
+                    return Err("min expects a non-empty vector".into());
+                }
                 let mut min_val = v[0].as_number()?;
                 for elem in v.iter().skip(1) {
                     if let Value::Number(e) = elem {
-                        if e < &min_val { min_val = *e; }
+                        if e < &min_val {
+                            min_val = *e;
+                        }
                     }
                 }
                 Ok(Value::Number(min_val))
             }
-            _ => expect_num(&args, 1).map(|n| Value::Number(n.into_iter().fold(f64::INFINITY, f64::min))),
+            _ => expect_num(&args, 1)
+                .map(|n| Value::Number(n.into_iter().fold(f64::INFINITY, f64::min))),
         }
     } else {
         let nums = expect_num(&args, args.len())?;
-        Ok(Value::Number(nums.into_iter().fold(f64::INFINITY, f64::min)))
+        Ok(Value::Number(
+            nums.into_iter().fold(f64::INFINITY, f64::min),
+        ))
     }
 }
 
 fn builtin_max(args: Vec<Value>) -> Result<Value, String> {
-    if args.is_empty() { return Err("max expects at least 1 argument".into()); }
+    if args.is_empty() {
+        return Err("max expects at least 1 argument".into());
+    }
     if args.len() == 1 {
         match &args[0] {
             Value::Vector(v) => {
-                if v.is_empty() { return Err("max expects a non-empty vector".into()); }
+                if v.is_empty() {
+                    return Err("max expects a non-empty vector".into());
+                }
                 let mut max_val = v[0].as_number()?;
                 for elem in v.iter().skip(1) {
                     if let Value::Number(e) = elem {
-                        if e > &max_val { max_val = *e; }
+                        if e > &max_val {
+                            max_val = *e;
+                        }
                     }
                 }
                 Ok(Value::Number(max_val))
             }
-            _ => expect_num(&args, 1).map(|n| Value::Number(n.into_iter().fold(f64::NEG_INFINITY, f64::max))),
+            _ => expect_num(&args, 1)
+                .map(|n| Value::Number(n.into_iter().fold(f64::NEG_INFINITY, f64::max))),
         }
     } else {
         let nums = expect_num(&args, args.len())?;
-        Ok(Value::Number(nums.into_iter().fold(f64::NEG_INFINITY, f64::max)))
+        Ok(Value::Number(
+            nums.into_iter().fold(f64::NEG_INFINITY, f64::max),
+        ))
     }
 }
 
 fn builtin_len(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 { return Err("len expects 1 argument".into()); }
+    if args.len() != 1 {
+        return Err("len expects 1 argument".into());
+    }
     match &args[0] {
         Value::Vector(v) => Ok(Value::Number(v.len() as f64)),
         Value::String(s) => Ok(Value::Number(s.len() as f64)),
@@ -365,20 +409,29 @@ fn builtin_len(args: Vec<Value>) -> Result<Value, String> {
 
 fn builtin_norm(args: Vec<Value>) -> Result<Value, String> {
     let vecs = expect_vec(&args, 1)?;
-    let sum: f64 = vecs[0].iter().filter_map(|v| v.as_number().ok()).map(|x| x * x).sum();
+    let sum: f64 = vecs[0]
+        .iter()
+        .filter_map(|v| v.as_number().ok())
+        .map(|x| x * x)
+        .sum();
     Ok(Value::Number(sum.sqrt()))
 }
 
 fn builtin_cross(args: Vec<Value>) -> Result<Value, String> {
     let vecs = expect_vec(&args, 2)?;
-    let a = &vecs[0]; let b = &vecs[1];
+    let a = &vecs[0];
+    let b = &vecs[1];
     let la = a.len();
     let lb = b.len();
-    
+
     if la == 3 && lb == 3 {
         // 3D cross product
-        let ax = a[0].as_number()?; let ay = a[1].as_number()?; let az = a[2].as_number()?;
-        let bx = b[0].as_number()?; let by = b[1].as_number()?; let bz = b[2].as_number()?;
+        let ax = a[0].as_number()?;
+        let ay = a[1].as_number()?;
+        let az = a[2].as_number()?;
+        let bx = b[0].as_number()?;
+        let by = b[1].as_number()?;
+        let bz = b[2].as_number()?;
         Ok(Value::Vector(vec![
             Value::Number(ay * bz - az * by),
             Value::Number(az * bx - ax * bz),
@@ -386,8 +439,10 @@ fn builtin_cross(args: Vec<Value>) -> Result<Value, String> {
         ]))
     } else if la == 2 && lb == 2 {
         // 2D cross product (scalar: x1*y2 - y1*x2)
-        let ax = a[0].as_number()?; let ay = a[1].as_number()?;
-        let bx = b[0].as_number()?; let by = b[1].as_number()?;
+        let ax = a[0].as_number()?;
+        let ay = a[1].as_number()?;
+        let bx = b[0].as_number()?;
+        let by = b[1].as_number()?;
         Ok(Value::Number(ax * by - ay * bx))
     } else {
         Err("cross product requires 2D or 3D vectors".into())
@@ -651,9 +706,10 @@ fn builtin_lookup(args: Vec<Value>) -> Result<Value, String> {
     Ok(Value::Number(pairs.last().unwrap().1))
 }
 
-
 fn builtin_version(args: Vec<Value>) -> Result<Value, String> {
-    if !args.is_empty() { return Err("version expects no arguments".into()); }
+    if !args.is_empty() {
+        return Err("version expects no arguments".into());
+    }
     Ok(Value::Vector(vec![
         Value::Number(2021.0),
         Value::Number(1.0),
@@ -675,74 +731,117 @@ fn builtin_ident(args: Vec<Value>) -> Result<Value, String> {
         return Err("ident size must be an integer between 1 and 32".into());
     }
     let size = size as usize;
-    Ok(Value::Vector((0..size).map(|row| {
-        Value::Vector((0..size).map(|column| {
-            Value::Number(if row == column { 1.0 } else { 0.0 })
-        }).collect())
-    }).collect()))
+    Ok(Value::Vector(
+        (0..size)
+            .map(|row| {
+                Value::Vector(
+                    (0..size)
+                        .map(|column| Value::Number(if row == column { 1.0 } else { 0.0 }))
+                        .collect(),
+                )
+            })
+            .collect(),
+    ))
 }
 
 fn builtin_undef(args: Vec<Value>) -> Result<Value, String> {
-    if !args.is_empty() { return Err("undef expects no arguments".into()); }
+    if !args.is_empty() {
+        return Err("undef expects no arguments".into());
+    }
     Ok(Value::Undef)
 }
 
 fn builtin_is_undef(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 { return Err("is_undef expects 1 argument".into()); }
+    if args.len() != 1 {
+        return Err("is_undef expects 1 argument".into());
+    }
     Ok(Value::Bool(args[0].is_undef()))
 }
 
 fn builtin_is_bool(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 { return Err("is_bool expects 1 argument".into()); }
+    if args.len() != 1 {
+        return Err("is_bool expects 1 argument".into());
+    }
     Ok(Value::Bool(matches!(args[0], Value::Bool(_))))
 }
 
 fn builtin_is_num(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 { return Err("is_num expects 1 argument".into()); }
+    if args.len() != 1 {
+        return Err("is_num expects 1 argument".into());
+    }
     Ok(Value::Bool(matches!(args[0], Value::Number(_))))
 }
 
 fn builtin_is_string(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 { return Err("is_string expects 1 argument".into()); }
+    if args.len() != 1 {
+        return Err("is_string expects 1 argument".into());
+    }
     Ok(Value::Bool(matches!(args[0], Value::String(_))))
 }
 
 fn builtin_is_list(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 { return Err("is_list expects 1 argument".into()); }
+    if args.len() != 1 {
+        return Err("is_list expects 1 argument".into());
+    }
     Ok(Value::Bool(matches!(args[0], Value::Vector(_))))
 }
 
 fn builtin_is_int(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 { return Err("is_int expects 1 argument".into()); }
-    Ok(Value::Bool(matches!(args[0], Value::Number(n) if n.is_finite() && n.fract() == 0.0)))
+    if args.len() != 1 {
+        return Err("is_int expects 1 argument".into());
+    }
+    Ok(Value::Bool(
+        matches!(args[0], Value::Number(n) if n.is_finite() && n.fract() == 0.0),
+    ))
 }
 
 fn builtin_is_finite(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 { return Err("is_finite expects 1 argument".into()); }
-    Ok(Value::Bool(matches!(args[0], Value::Number(n) if n.is_finite())))
+    if args.len() != 1 {
+        return Err("is_finite expects 1 argument".into());
+    }
+    Ok(Value::Bool(
+        matches!(args[0], Value::Number(n) if n.is_finite()),
+    ))
 }
 
 fn builtin_is_nan(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 { return Err("is_nan expects 1 argument".into()); }
-    Ok(Value::Bool(matches!(args[0], Value::Number(n) if n.is_nan())))
+    if args.len() != 1 {
+        return Err("is_nan expects 1 argument".into());
+    }
+    Ok(Value::Bool(
+        matches!(args[0], Value::Number(n) if n.is_nan()),
+    ))
 }
 
 fn builtin_is_def(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 { return Err("is_def expects 1 argument".into()); }
+    if args.len() != 1 {
+        return Err("is_def expects 1 argument".into());
+    }
     Ok(Value::Bool(!args[0].is_undef()))
 }
 
 fn builtin_last(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 1 { return Err("last expects 1 argument".into()); }
+    if args.len() != 1 {
+        return Err("last expects 1 argument".into());
+    }
     match &args[0] {
-        Value::Vector(values) => values.last().cloned().ok_or_else(|| "last expects a non-empty list".into()),
+        Value::Vector(values) => values
+            .last()
+            .cloned()
+            .ok_or_else(|| "last expects a non-empty list".into()),
         _ => Err("last expects a list".into()),
     }
 }
 
 fn builtin_default(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() != 2 { return Err("default expects 2 arguments".into()); }
-    Ok(if args[0].is_undef() { args[1].clone() } else { args[0].clone() })
+    if args.len() != 2 {
+        return Err("default expects 2 arguments".into());
+    }
+    Ok(if args[0].is_undef() {
+        args[1].clone()
+    } else {
+        args[0].clone()
+    })
 }
 
 fn builtin_concat(args: Vec<Value>) -> Result<Value, String> {
@@ -757,21 +856,23 @@ fn builtin_concat(args: Vec<Value>) -> Result<Value, String> {
 }
 
 fn builtin_select(args: Vec<Value>) -> Result<Value, String> {
-    if args.len() < 2 { return Err("select expects a list and index".into()); }
+    if args.len() < 2 {
+        return Err("select expects a list and index".into());
+    }
     let values = match &args[0] {
         Value::Vector(values) => values,
         _ => return Err("select expects a list as its first argument".into()),
     };
-    let index = |value: &Value| -> Result<isize, String> {
-        Ok(value.as_number()?.trunc() as isize)
-    };
+    let index =
+        |value: &Value| -> Result<isize, String> { Ok(value.as_number()?.trunc() as isize) };
     let get = |position: isize| -> Result<Value, String> {
         let position = if position < 0 {
             values.len() as isize + position
         } else {
             position
         };
-        values.get(position as usize)
+        values
+            .get(position as usize)
             .cloned()
             .ok_or_else(|| "select index out of bounds".to_string())
     };
@@ -794,7 +895,9 @@ fn builtin_select(args: Vec<Value>) -> Result<Value, String> {
         let mut current = start;
         loop {
             result.push(get(current)?);
-            if current == end { break; }
+            if current == end {
+                break;
+            }
             current += step;
         }
         return Ok(Value::Vector(result));
@@ -804,6 +907,8 @@ fn builtin_select(args: Vec<Value>) -> Result<Value, String> {
 
 fn builtin_posmod(args: Vec<Value>) -> Result<Value, String> {
     let values = expect_num(&args, 2)?;
-    if values[1] == 0.0 { return Err("posmod divisor cannot be zero".into()); }
+    if values[1] == 0.0 {
+        return Err("posmod divisor cannot be zero".into());
+    }
     Ok(Value::Number(values[0].rem_euclid(values[1].abs())))
 }

@@ -1,9 +1,8 @@
 use eframe::egui;
 use eframe::Frame;
-use openscad_rust::{Parser, Executor, Environment};
+use openscad_rust::{Environment, Executor, Parser};
 use std::rc::Rc;
 use std::sync::mpsc::{self, Receiver};
-
 
 #[derive(Clone, Debug)]
 struct MeshData {
@@ -27,7 +26,12 @@ struct Camera {
 
 impl Default for Camera {
     fn default() -> Self {
-        Self { yaw: -0.785, pitch: 0.5, distance: 40.0, target: [0.0, 0.0, 0.0] }
+        Self {
+            yaw: -0.785,
+            pitch: 0.5,
+            distance: 40.0,
+            target: [0.0, 0.0, 0.0],
+        }
     }
 }
 
@@ -168,7 +172,9 @@ impl OpenScadApp {
                     let mesh = exec.build_mesh();
                     if let Some(mesh) = mesh {
                         let stl = mesh.to_stl();
-                        let vertices: Vec<[f32; 3]> = mesh.vertices.iter()
+                        let vertices: Vec<[f32; 3]> = mesh
+                            .vertices
+                            .iter()
                             .map(|v| [v[0] as f32, v[1] as f32, v[2] as f32])
                             .collect();
                         let mut indices: Vec<u32> = Vec::new();
@@ -200,13 +206,17 @@ impl OpenScadApp {
 
                         let vertex_count = vertices.len();
                         let face_count = mesh.faces.len();
-                        let _ = tx.send(EvalResult::Log(
-                            format!("Mesh: {vertex_count} vertices, {face_count} faces")
-                        ));
+                        let _ = tx.send(EvalResult::Log(format!(
+                            "Mesh: {vertex_count} vertices, {face_count} faces"
+                        )));
                         let _ = tx.send(EvalResult::Log(format!(
                             "Bounds: [{:.2}, {:.2}, {:.2}] to [{:.2}, {:.2}, {:.2}]",
-                            bounds_min[0] as f64, bounds_min[1] as f64, bounds_min[2] as f64,
-                            bounds_max[0] as f64, bounds_max[1] as f64, bounds_max[2] as f64
+                            bounds_min[0] as f64,
+                            bounds_min[1] as f64,
+                            bounds_min[2] as f64,
+                            bounds_max[0] as f64,
+                            bounds_max[1] as f64,
+                            bounds_max[2] as f64
                         )));
                         let _ = tx.send(EvalResult::Log(format!("STL size: {} bytes", stl.len())));
 
@@ -244,9 +254,7 @@ impl OpenScadApp {
             if !min[0].is_finite() {
                 return None;
             }
-            let extent = (max[0] - min[0])
-                .max(max[1] - min[1])
-                .max(max[2] - min[2]);
+            let extent = (max[0] - min[0]).max(max[1] - min[1]).max(max[2] - min[2]);
             Some((
                 [
                     (min[0] + max[0]) / 2.0,
@@ -271,7 +279,8 @@ impl OpenScadApp {
             {
                 match std::fs::write(&path, data) {
                     Ok(()) => {
-                        self.console.push(format!("Exported STL: {}", path.display()));
+                        self.console
+                            .push(format!("Exported STL: {}", path.display()));
                     }
                     Err(e) => {
                         self.console.push(format!("Error exporting STL: {e}"));
@@ -279,7 +288,8 @@ impl OpenScadApp {
                 }
             }
         } else {
-            self.console.push("No model to export. Run evaluation first.".to_string());
+            self.console
+                .push("No model to export. Run evaluation first.".to_string());
         }
     }
 }
@@ -381,96 +391,106 @@ impl eframe::App for OpenScadApp {
             });
         });
 
-        egui::SidePanel::left("file_panel").default_width(200.0).show(ctx, |ui| {
-            ui.heading("OpenSCAD Rust");
-            ui.separator();
-            if let Some(ref path) = self.current_file {
-                ui.label(format!("File: {}", path));
-            } else {
-                ui.label("File: <untitled>");
-            }
-            ui.separator();
-            if self.evaluating {
-                ui.colored_label(egui::Color32::YELLOW, "Evaluating...");
-            }
-            if let Some(ref mesh) = self.mesh {
+        egui::SidePanel::left("file_panel")
+            .default_width(200.0)
+            .show(ctx, |ui| {
+                ui.heading("OpenSCAD Rust");
                 ui.separator();
-                ui.heading("Mesh Info");
-                ui.label(format!("Vertices: {}", mesh.vertices.len()));
-                ui.label(format!("Triangles: {}", mesh.indices.len() / 3));
-            }
-            ui.separator();
-            ui.collapsing("Camera", |ui| {
-                ui.label(format!("Distance: {:.1}", self.camera.distance));
-                ui.label(format!("Yaw: {:.2}", self.camera.yaw));
-                ui.label(format!("Pitch: {:.2}", self.camera.pitch));
-            });
-        });
-
-        egui::TopBottomPanel::bottom("status").exact_height(22.0).show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                match self.eval_ms {
-                    Some(ms) => ui.label(format!("Eval: {ms} ms")),
-                    None => ui.label("Eval: –"),
-                };
-                ui.separator();
-                match &self.mesh {
-                    Some(m) => {
-                        ui.label(format!("Tris: {}", m.indices.len() / 3));
-                    }
-                    None => {
-                        ui.label("Tris: –");
-                    }
+                if let Some(ref path) = self.current_file {
+                    ui.label(format!("File: {}", path));
+                } else {
+                    ui.label("File: <untitled>");
                 }
                 ui.separator();
-                match self.cursor_world {
-                    Some(p) => ui.label(format!("X: {:.1}  Y: {:.1}  Z: {:.1}", p[0], p[1], p[2])),
-                    None => ui.label("X: –  Y: –  Z: –"),
-                };
-                ui.separator();
-                ui.label(format!("Zoom: {:.1}", self.camera.distance));
-                ui.separator();
-                ui.label(if self.orthographic { "Ortho" } else { "Persp" });
-                ui.separator();
-                ui.label(if self.auto_preview { "Preview: auto" } else { "Preview: off" });
-            });
-        });
-
-        egui::TopBottomPanel::bottom("console").default_height(150.0).show(ctx, |ui| {
-            ui.horizontal(|ui| {
-                ui.heading("Console");
-                if let Some(line) = self.error_line {
-                    if ui.small_button(format!("→ jump to line {line}")).clicked() {
-                        self.jump_line = Some(line);
-                    }
+                if self.evaluating {
+                    ui.colored_label(egui::Color32::YELLOW, "Evaluating...");
                 }
+                if let Some(ref mesh) = self.mesh {
+                    ui.separator();
+                    ui.heading("Mesh Info");
+                    ui.label(format!("Vertices: {}", mesh.vertices.len()));
+                    ui.label(format!("Triangles: {}", mesh.indices.len() / 3));
+                }
+                ui.separator();
+                ui.collapsing("Camera", |ui| {
+                    ui.label(format!("Distance: {:.1}", self.camera.distance));
+                    ui.label(format!("Yaw: {:.2}", self.camera.yaw));
+                    ui.label(format!("Pitch: {:.2}", self.camera.pitch));
+                });
             });
-            egui::ScrollArea::new([true, true]).show(ui, |ui| {
-                for line in &self.console {
-                    let color = if line.contains("Error") || line.contains("error") {
-                        egui::Color32::RED
-                    } else if line == "DONE" {
-                        egui::Color32::GREEN
-                    } else {
-                        egui::Color32::GRAY
+
+        egui::TopBottomPanel::bottom("status")
+            .exact_height(22.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    match self.eval_ms {
+                        Some(ms) => ui.label(format!("Eval: {ms} ms")),
+                        None => ui.label("Eval: –"),
                     };
-                    ui.colored_label(color, line);
-                }
-                if self.scroll_to_bottom {
-                    ui.scroll_to_cursor(Some(egui::Align::Max));
-                    self.scroll_to_bottom = false;
-                }
+                    ui.separator();
+                    match &self.mesh {
+                        Some(m) => {
+                            ui.label(format!("Tris: {}", m.indices.len() / 3));
+                        }
+                        None => {
+                            ui.label("Tris: –");
+                        }
+                    }
+                    ui.separator();
+                    match self.cursor_world {
+                        Some(p) => {
+                            ui.label(format!("X: {:.1}  Y: {:.1}  Z: {:.1}", p[0], p[1], p[2]))
+                        }
+                        None => ui.label("X: –  Y: –  Z: –"),
+                    };
+                    ui.separator();
+                    ui.label(format!("Zoom: {:.1}", self.camera.distance));
+                    ui.separator();
+                    ui.label(if self.orthographic { "Ortho" } else { "Persp" });
+                    ui.separator();
+                    ui.label(if self.auto_preview {
+                        "Preview: auto"
+                    } else {
+                        "Preview: off"
+                    });
+                });
             });
-        });
+
+        egui::TopBottomPanel::bottom("console")
+            .default_height(150.0)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.heading("Console");
+                    if let Some(line) = self.error_line {
+                        if ui.small_button(format!("→ jump to line {line}")).clicked() {
+                            self.jump_line = Some(line);
+                        }
+                    }
+                });
+                egui::ScrollArea::new([true, true]).show(ui, |ui| {
+                    for line in &self.console {
+                        let color = if line.contains("Error") || line.contains("error") {
+                            egui::Color32::RED
+                        } else if line == "DONE" {
+                            egui::Color32::GREEN
+                        } else {
+                            egui::Color32::GRAY
+                        };
+                        ui.colored_label(color, line);
+                    }
+                    if self.scroll_to_bottom {
+                        ui.scroll_to_cursor(Some(egui::Align::Max));
+                        self.scroll_to_bottom = false;
+                    }
+                });
+            });
 
         egui::CentralPanel::default().show(ctx, |ui| {
             let avail = ui.available_rect_before_wrap();
             let editor_width = avail.width() * 0.5;
 
-            let editor_rect = egui::Rect::from_min_size(
-                avail.min,
-                egui::vec2(editor_width, avail.height()),
-            );
+            let editor_rect =
+                egui::Rect::from_min_size(avail.min, egui::vec2(editor_width, avail.height()));
             let viewport_rect = egui::Rect::from_min_size(
                 egui::pos2(avail.min.x + editor_width, avail.min.y),
                 egui::vec2(avail.width() - editor_width, avail.height()),
@@ -501,12 +521,10 @@ impl eframe::App for OpenScadApp {
                         if let Some(mut state) =
                             egui::text_edit::TextEditState::load(ui.ctx(), response.id)
                         {
-                            state.set_ccursor_range(Some(
-                                egui::text_edit::CCursorRange::two(
-                                    egui::text::CCursor::new(start),
-                                    egui::text::CCursor::new(end),
-                                ),
-                            ));
+                            state.set_ccursor_range(Some(egui::text_edit::CCursorRange::two(
+                                egui::text::CCursor::new(start),
+                                egui::text::CCursor::new(end),
+                            )));
                             state.store(ui.ctx(), response.id);
                         }
                     }
@@ -566,11 +584,7 @@ impl eframe::App for OpenScadApp {
                         response.rect,
                     );
                 } else {
-                    painter.rect_filled(
-                        response.rect,
-                        0.0,
-                        egui::Color32::from_rgb(40, 44, 52),
-                    );
+                    painter.rect_filled(response.rect, 0.0, egui::Color32::from_rgb(40, 44, 52));
                     painter.text(
                         response.rect.center(),
                         egui::Align2::CENTER_CENTER,
@@ -599,8 +613,8 @@ impl eframe::App for OpenScadApp {
                         if let Some(last_pos) = self.last_pointer_pos {
                             let delta = current_pos - last_pos;
                             self.camera.yaw += delta.x * 0.01;
-                            self.camera.pitch = (self.camera.pitch + delta.y * 0.01)
-                                .clamp(-1.5, 1.5);
+                            self.camera.pitch =
+                                (self.camera.pitch + delta.y * 0.01).clamp(-1.5, 1.5);
                         }
                         self.last_pointer_pos = Some(current_pos);
                     }
@@ -661,7 +675,9 @@ fn render_mesh_2d(
         }
     };
 
-    let indices: Vec<[u32; 3]> = mesh.indices.chunks_exact(3)
+    let indices: Vec<[u32; 3]> = mesh
+        .indices
+        .chunks_exact(3)
         .map(|c| [c[0], c[1], c[2]])
         .collect();
 
@@ -713,9 +729,24 @@ fn render_mesh_2d(
             k += step;
         }
     }
-    draw_line([-extent, 0.0, 0.0], [extent, 0.0, 0.0], egui::Color32::from_rgb(220, 80, 80), 1.5);
-    draw_line([0.0, -extent, 0.0], [0.0, extent, 0.0], egui::Color32::from_rgb(80, 200, 80), 1.5);
-    draw_line([0.0, 0.0, 0.0], [0.0, 0.0, extent], egui::Color32::from_rgb(90, 140, 240), 1.5);
+    draw_line(
+        [-extent, 0.0, 0.0],
+        [extent, 0.0, 0.0],
+        egui::Color32::from_rgb(220, 80, 80),
+        1.5,
+    );
+    draw_line(
+        [0.0, -extent, 0.0],
+        [0.0, extent, 0.0],
+        egui::Color32::from_rgb(80, 200, 80),
+        1.5,
+    );
+    draw_line(
+        [0.0, 0.0, 0.0],
+        [0.0, 0.0, extent],
+        egui::Color32::from_rgb(90, 140, 240),
+        1.5,
+    );
 
     if show_grid {
         let tick = step * 0.25;
@@ -724,8 +755,18 @@ fn render_mesh_2d(
         while label_k <= extent + 0.001 {
             let c = label_k;
             if c.abs() > 0.001 {
-                draw_line([c, -tick, 0.0], [c, tick, 0.0], egui::Color32::from_gray(140), 1.0);
-                draw_line([-tick, c, 0.0], [tick, c, 0.0], egui::Color32::from_gray(140), 1.0);
+                draw_line(
+                    [c, -tick, 0.0],
+                    [c, tick, 0.0],
+                    egui::Color32::from_gray(140),
+                    1.0,
+                );
+                draw_line(
+                    [-tick, c, 0.0],
+                    [tick, c, 0.0],
+                    egui::Color32::from_gray(140),
+                    1.0,
+                );
             }
             if let Some(p) = project([c, 0.0, 0.0]) {
                 if rect.contains(p) && c.abs() > 0.001 {
@@ -782,10 +823,9 @@ fn render_mesh_2d(
                 valid = false;
                 break;
             }
-            depth += (view_pos[0] * view_pos[0]
-                + view_pos[1] * view_pos[1]
-                + view_pos[2] * view_pos[2])
-                .sqrt();
+            depth +=
+                (view_pos[0] * view_pos[0] + view_pos[1] * view_pos[1] + view_pos[2] * view_pos[2])
+                    .sqrt();
             let ndc_x = clip_pos[0] / clip_pos[3];
             let ndc_y = clip_pos[1] / clip_pos[3];
             let sx = rect.left() + (ndc_x * 0.5 + 0.5) * rect.width();
@@ -867,7 +907,11 @@ fn render_mesh_2d(
 
 fn normalize(v: [f32; 3]) -> [f32; 3] {
     let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt();
-    if len > 0.0 { [v[0] / len, v[1] / len, v[2] / len] } else { [0.0, 0.0, 1.0] }
+    if len > 0.0 {
+        [v[0] / len, v[1] / len, v[2] / len]
+    } else {
+        [0.0, 0.0, 1.0]
+    }
 }
 
 fn camera_eye(camera: &Camera) -> [f32; 3] {
@@ -977,9 +1021,24 @@ fn build_matrices(
     let (fwd, right, true_up) = camera_basis(eye, target);
 
     let view = [
-        [right[0], right[1], right[2], -(right[0] * eye[0] + right[1] * eye[1] + right[2] * eye[2])],
-        [true_up[0], true_up[1], true_up[2], -(true_up[0] * eye[0] + true_up[1] * eye[1] + true_up[2] * eye[2])],
-        [-fwd[0], -fwd[1], -fwd[2], fwd[0] * eye[0] + fwd[1] * eye[1] + fwd[2] * eye[2]],
+        [
+            right[0],
+            right[1],
+            right[2],
+            -(right[0] * eye[0] + right[1] * eye[1] + right[2] * eye[2]),
+        ],
+        [
+            true_up[0],
+            true_up[1],
+            true_up[2],
+            -(true_up[0] * eye[0] + true_up[1] * eye[1] + true_up[2] * eye[2]),
+        ],
+        [
+            -fwd[0],
+            -fwd[1],
+            -fwd[2],
+            fwd[0] * eye[0] + fwd[1] * eye[1] + fwd[2] * eye[2],
+        ],
         [0.0, 0.0, 0.0, 1.0],
     ];
 
@@ -1023,7 +1082,8 @@ fn run_cli(args: &[String]) -> Result<(), String> {
         println!("Usage: openscad-rust <file.scad> [-o|--output <file.stl|file.obj>] [--binary]");
         return Ok(());
     }
-    let input = args.first()
+    let input = args
+        .first()
         .ok_or_else(|| usage_error("missing input file"))?;
     if input.starts_with('-') {
         return Err(usage_error("input file must be the first argument"));
@@ -1036,7 +1096,8 @@ fn run_cli(args: &[String]) -> Result<(), String> {
         match args[index].as_str() {
             "-o" | "--output" => {
                 index += 1;
-                let path = args.get(index)
+                let path = args
+                    .get(index)
                     .ok_or_else(|| usage_error("missing path after --output"))?;
                 output = Some(path);
             }
@@ -1046,8 +1107,8 @@ fn run_cli(args: &[String]) -> Result<(), String> {
         index += 1;
     }
 
-    let parsed = Parser::parse_file(input)
-        .map_err(|error| format!("failed to parse '{input}': {error}"))?;
+    let parsed =
+        Parser::parse_file(input).map_err(|error| format!("failed to parse '{input}': {error}"))?;
     let env = Rc::new(Environment::new());
     let mut exec = Executor::new(env);
     exec.execute_source(&parsed)
@@ -1060,7 +1121,11 @@ fn run_cli(args: &[String]) -> Result<(), String> {
         if mesh.is_empty() {
             return Err(format!("model '{input}' produced no exportable faces"));
         }
-        let format = output.rsplit('.').next().unwrap_or_default().to_ascii_lowercase();
+        let format = output
+            .rsplit('.')
+            .next()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
         if binary && format != "stl" {
             return Err("--binary is only supported for STL output".into());
         }
@@ -1068,9 +1133,11 @@ fn run_cli(args: &[String]) -> Result<(), String> {
             "stl" if binary => mesh.to_binary_stl(),
             "stl" => mesh.to_stl().into_bytes(),
             "obj" => mesh.to_obj().into_bytes(),
-            _ => return Err(format!(
-                "unsupported output format '.{format}'; use .stl or .obj"
-            )),
+            _ => {
+                return Err(format!(
+                    "unsupported output format '.{format}'; use .stl or .obj"
+                ))
+            }
         };
         std::fs::write(output, contents)
             .map_err(|error| format!("failed to write '{output}': {error}"))?;

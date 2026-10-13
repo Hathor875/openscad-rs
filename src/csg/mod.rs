@@ -1,8 +1,8 @@
 // Simple CSG module using mesh representation
 // Uses nalgebra for math, outputs to OBJ/STL
 
-use nalgebra::Matrix4;
 use manifold3d::Manifold;
+use nalgebra::Matrix4;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BooleanOp {
@@ -53,15 +53,58 @@ pub enum CsgNode {
 
 #[derive(Debug, Clone)]
 pub enum Primitive {
-    Cube { size: [f64; 3], center: bool },
-    Sphere { r: f64, d: Option<f64>, fn_: Option<usize>, fa: Option<f64>, fs: Option<f64> },
-    Cylinder { h: f64, r1: f64, r2: f64, d1: Option<f64>, d2: Option<f64>, center: bool, fn_: Option<usize>, fa: Option<f64>, fs: Option<f64> },
-    Polyhedron { points: Vec<[f64; 3]>, faces: Vec<Vec<usize>> },
-    Square { size: [f64; 2], center: bool },
-    Circle { r: f64, d: Option<f64>, fn_: Option<usize>, fa: Option<f64>, fs: Option<f64> },
-    Polygon { points: Vec<[f64; 2]>, paths: Vec<Vec<usize>> },
-    Text { text: String, size: f64, font: String, halign: String, valign: String },
-    Import { file: String, convexity: usize },
+    Cube {
+        size: [f64; 3],
+        center: bool,
+    },
+    Sphere {
+        r: f64,
+        d: Option<f64>,
+        fn_: Option<usize>,
+        fa: Option<f64>,
+        fs: Option<f64>,
+    },
+    Cylinder {
+        h: f64,
+        r1: f64,
+        r2: f64,
+        d1: Option<f64>,
+        d2: Option<f64>,
+        center: bool,
+        fn_: Option<usize>,
+        fa: Option<f64>,
+        fs: Option<f64>,
+    },
+    Polyhedron {
+        points: Vec<[f64; 3]>,
+        faces: Vec<Vec<usize>>,
+    },
+    Square {
+        size: [f64; 2],
+        center: bool,
+    },
+    Circle {
+        r: f64,
+        d: Option<f64>,
+        fn_: Option<usize>,
+        fa: Option<f64>,
+        fs: Option<f64>,
+    },
+    Polygon {
+        points: Vec<[f64; 2]>,
+        paths: Vec<Vec<usize>>,
+    },
+    Text {
+        text: String,
+        size: f64,
+        font: String,
+        halign: String,
+        valign: String,
+    },
+    Import {
+        file: String,
+        convexity: usize,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -91,7 +134,12 @@ impl Mesh {
         let a = self.vertices[face[0]];
         let b = self.vertices[face[1]];
         let c = self.vertices[face[2]];
-        if !a.iter().chain(b.iter()).chain(c.iter()).all(|value| value.is_finite()) {
+        if !a
+            .iter()
+            .chain(b.iter())
+            .chain(c.iter())
+            .all(|value| value.is_finite())
+        {
             return false;
         }
         let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
@@ -114,9 +162,13 @@ impl Mesh {
                     for (index, vertex) in indices.iter_mut().enumerate() {
                         let offset = 12 + index * 12;
                         let point = [
-                            f32::from_le_bytes(triangle[offset..offset + 4].try_into().unwrap()) as f64,
-                            f32::from_le_bytes(triangle[offset + 4..offset + 8].try_into().unwrap()) as f64,
-                            f32::from_le_bytes(triangle[offset + 8..offset + 12].try_into().unwrap()) as f64,
+                            f32::from_le_bytes(triangle[offset..offset + 4].try_into().unwrap())
+                                as f64,
+                            f32::from_le_bytes(triangle[offset + 4..offset + 8].try_into().unwrap())
+                                as f64,
+                            f32::from_le_bytes(
+                                triangle[offset + 8..offset + 12].try_into().unwrap(),
+                            ) as f64,
                         ];
                         *vertex = Self::stl_vertex(&mut mesh.vertices, point);
                     }
@@ -153,8 +205,7 @@ impl Mesh {
     }
 
     pub fn from_obj(data: &[u8]) -> Result<Self, String> {
-        let text = std::str::from_utf8(data)
-            .map_err(|_| "OBJ is not valid UTF-8".to_string())?;
+        let text = std::str::from_utf8(data).map_err(|_| "OBJ is not valid UTF-8".to_string())?;
         let mut mesh = Mesh::new();
         for line in text.lines() {
             let mut fields = line.split_whitespace();
@@ -171,28 +222,35 @@ impl Mesh {
                     ]);
                 }
                 Some("f") => {
-                    let indices: Result<Vec<_>, _> = fields.map(|field| {
-                        let index = field.split('/').next().unwrap_or_default()
-                            .parse::<isize>().map_err(|_| "invalid OBJ face index")?;
-                        if index == 0 {
-                            return Err("OBJ face indices cannot be zero");
-                        }
-                        let resolved = if index < 0 {
-                            mesh.vertices.len() as isize + index
-                        } else {
-                            index - 1
-                        };
-                        if resolved < 0 || resolved >= mesh.vertices.len() as isize {
-                            return Err("OBJ face index out of range");
-                        }
-                        Ok(resolved as usize)
-                    }).collect();
+                    let indices: Result<Vec<_>, _> = fields
+                        .map(|field| {
+                            let index = field
+                                .split('/')
+                                .next()
+                                .unwrap_or_default()
+                                .parse::<isize>()
+                                .map_err(|_| "invalid OBJ face index")?;
+                            if index == 0 {
+                                return Err("OBJ face indices cannot be zero");
+                            }
+                            let resolved = if index < 0 {
+                                mesh.vertices.len() as isize + index
+                            } else {
+                                index - 1
+                            };
+                            if resolved < 0 || resolved >= mesh.vertices.len() as isize {
+                                return Err("OBJ face index out of range");
+                            }
+                            Ok(resolved as usize)
+                        })
+                        .collect();
                     let indices = indices?;
                     if indices.len() < 3 {
                         return Err("OBJ face must have at least three vertices".into());
                     }
                     for index in 1..indices.len() - 1 {
-                        mesh.faces.push([indices[0], indices[index], indices[index + 1]]);
+                        mesh.faces
+                            .push([indices[0], indices[index], indices[index + 1]]);
                     }
                 }
                 _ => {}
@@ -213,41 +271,58 @@ impl Mesh {
             vertices.len() - 1
         }
     }
-    
+
     pub fn cube(size: [f64; 3], center: bool) -> Self {
         let [sx, sy, sz] = size;
-        let offset = if center { [-size[0]/2.0, -size[1]/2.0, -size[2]/2.0] } else { [0.0, 0.0, 0.0] };
-        
+        let offset = if center {
+            [-size[0] / 2.0, -size[1] / 2.0, -size[2] / 2.0]
+        } else {
+            [0.0, 0.0, 0.0]
+        };
+
         let verts = [
-            [0.0, 0.0, 0.0], [sx, 0.0, 0.0], [sx, sy, 0.0], [0.0, sy, 0.0],
-            [0.0, 0.0, sz], [sx, 0.0, sz], [sx, sy, sz], [0.0, sy, sz],
+            [0.0, 0.0, 0.0],
+            [sx, 0.0, 0.0],
+            [sx, sy, 0.0],
+            [0.0, sy, 0.0],
+            [0.0, 0.0, sz],
+            [sx, 0.0, sz],
+            [sx, sy, sz],
+            [0.0, sy, sz],
         ];
-        
+
         let mut mesh = Mesh::new();
         for v in verts {
-            mesh.vertices.push([v[0] + offset[0], v[1] + offset[1], v[2] + offset[2]]);
+            mesh.vertices
+                .push([v[0] + offset[0], v[1] + offset[1], v[2] + offset[2]]);
         }
-        
+
         // 12 triangles (2 per face)
         let faces = [
-            [0, 2, 1], [0, 3, 2], // bottom
-            [4, 5, 6], [4, 6, 7], // top
-            [0, 1, 5], [0, 5, 4], // front
-            [2, 3, 7], [2, 7, 6], // back
-            [1, 2, 6], [1, 6, 5], // right
-            [3, 0, 4], [3, 4, 7], // left
+            [0, 2, 1],
+            [0, 3, 2], // bottom
+            [4, 5, 6],
+            [4, 6, 7], // top
+            [0, 1, 5],
+            [0, 5, 4], // front
+            [2, 3, 7],
+            [2, 7, 6], // back
+            [1, 2, 6],
+            [1, 6, 5], // right
+            [3, 0, 4],
+            [3, 4, 7], // left
         ];
-        
+
         for f in faces {
             mesh.faces.push(f);
         }
-        
+
         // Simple normals
         mesh.normals = vec![[0.0, 0.0, 1.0]; mesh.vertices.len()];
-        
+
         mesh
     }
-    
+
     pub fn sphere(radius: f64, segments: usize) -> Self {
         let mut mesh = Mesh::new();
         let seg = segments.max(3);
@@ -278,8 +353,10 @@ impl Mesh {
             let next_ring = current + seg;
             for j in 0..seg {
                 let next = (j + 1) % seg;
-                mesh.faces.push([current + j, current + next, next_ring + next]);
-                mesh.faces.push([current + j, next_ring + next, next_ring + j]);
+                mesh.faces
+                    .push([current + j, current + next, next_ring + next]);
+                mesh.faces
+                    .push([current + j, next_ring + next, next_ring + j]);
             }
         }
         let last_ring = 1 + (seg - 2) * seg;
@@ -336,7 +413,8 @@ impl Mesh {
                 [x + glyph_width, offset_y + size, 0.0],
                 [x, offset_y + size, 0.0],
             ]);
-            mesh.faces.extend([[base, base + 1, base + 2], [base, base + 2, base + 3]]);
+            mesh.faces
+                .extend([[base, base + 1, base + 2], [base, base + 2, base + 3]]);
         }
         mesh.normals = vec![[0.0, 0.0, 1.0]; mesh.vertices.len()];
         mesh
@@ -414,26 +492,27 @@ impl Mesh {
         };
         let mut points = first.vertices.clone();
         for mesh in meshes.iter().skip(1) {
-            points = points.iter().flat_map(|left| {
-                mesh.vertices.iter().map(move |right| [
-                    left[0] + right[0],
-                    left[1] + right[1],
-                    left[2] + right[2],
-                ])
-            }).collect();
+            points = points
+                .iter()
+                .flat_map(|left| {
+                    mesh.vertices.iter().map(move |right| {
+                        [left[0] + right[0], left[1] + right[1], left[2] + right[2]]
+                    })
+                })
+                .collect();
         }
         Mesh::convex_hull(&points)
     }
-    
+
     pub fn cylinder(h: f64, r1: f64, r2: f64, segments: usize, center: bool) -> Self {
         let mut mesh = Mesh::new();
         let seg = segments.max(3);
         let z_offset = if center { -0.5 } else { 0.0 };
-        
+
         for i in 0..=1 {
             let z = i as f64 * h + z_offset * h;
             let r = if i == 0 { r1 } else { r2 };
-            
+
             for j in 0..seg {
                 let angle = 2.0 * std::f64::consts::PI * j as f64 / seg as f64;
                 let x = r * angle.cos();
@@ -441,7 +520,7 @@ impl Mesh {
                 mesh.vertices.push([x, y, z]);
             }
         }
-        
+
         // Side faces
         for j in 0..seg {
             let a = j;
@@ -451,7 +530,7 @@ impl Mesh {
             mesh.faces.push([a, b, d]);
             mesh.faces.push([a, d, c]);
         }
-        
+
         let bottom_center = mesh.vertices.len();
         mesh.vertices.push([0.0, 0.0, z_offset * h]);
         let top_center = mesh.vertices.len();
@@ -464,7 +543,7 @@ impl Mesh {
         mesh.normals = vec![[0.0, 0.0, 1.0]; mesh.vertices.len()];
         mesh
     }
-    
+
     pub fn transform(&mut self, matrix: &nalgebra::Matrix4<f64>) {
         for v in &mut self.vertices {
             let p = nalgebra::Point3::new(v[0], v[1], v[2]);
@@ -473,24 +552,27 @@ impl Mesh {
             v[1] = tp.y;
             v[2] = tp.z;
         }
-
     }
-    
+
     pub fn linear_extrude(&self, height: f64, center: bool, twist: f64, scale: f64) -> Mesh {
         let offset_z = if center { -height / 2.0 } else { 0.0 };
         let mut mesh = Mesh::new();
-        mesh.vertices.extend(self.vertices.iter().map(|v| [v[0], v[1], offset_z]));
+        mesh.vertices
+            .extend(self.vertices.iter().map(|v| [v[0], v[1], offset_z]));
         let twist_radians = twist.to_radians();
         let (sin, cos) = twist_radians.sin_cos();
-        mesh.vertices.extend(self.vertices.iter().map(|v| [
-            scale * (v[0] * cos - v[1] * sin),
-            scale * (v[0] * sin + v[1] * cos),
-            offset_z + height,
-        ]));
+        mesh.vertices.extend(self.vertices.iter().map(|v| {
+            [
+                scale * (v[0] * cos - v[1] * sin),
+                scale * (v[0] * sin + v[1] * cos),
+                offset_z + height,
+            ]
+        }));
         let count = self.vertices.len();
         for face in &self.faces {
             mesh.faces.push([face[2], face[1], face[0]]);
-            mesh.faces.push([face[0] + count, face[1] + count, face[2] + count]);
+            mesh.faces
+                .push([face[0] + count, face[1] + count, face[2] + count]);
         }
 
         let mut edges = std::collections::HashMap::<(usize, usize), usize>::new();
@@ -509,7 +591,7 @@ impl Mesh {
         mesh.normals = vec![[0.0, 0.0, 1.0]; mesh.vertices.len()];
         mesh
     }
-    
+
     pub fn rotate_extrude(&self, angle: f64, segments: usize) -> Mesh {
         let segments = segments.max(3);
         let sweep = angle.to_radians();
@@ -518,11 +600,8 @@ impl Mesh {
             let theta = sweep * segment as f64 / segments as f64;
             let (sin, cos) = theta.sin_cos();
             for vertex in &self.vertices {
-                mesh.vertices.push([
-                    vertex[0] * cos,
-                    vertex[0] * sin,
-                    vertex[1],
-                ]);
+                mesh.vertices
+                    .push([vertex[0] * cos, vertex[0] * sin, vertex[1]]);
             }
         }
         let count = self.vertices.len();
@@ -539,7 +618,7 @@ impl Mesh {
         mesh.normals = vec![[0.0, 0.0, 1.0]; mesh.vertices.len()];
         mesh
     }
-    
+
     pub fn union(&self, other: &Mesh) -> Mesh {
         if self.faces.is_empty() {
             return other.clone();
@@ -551,8 +630,10 @@ impl Mesh {
         if Self::bounds_disjoint(self, other) {
             return Self::concatenate(self, other);
         }
-        let m1 = Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
-        let m2 = Self::mesh_to_manifold(other).unwrap_or_else(|_| Self::mesh_to_manifold_simple(other));
+        let m1 =
+            Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
+        let m2 =
+            Self::mesh_to_manifold(other).unwrap_or_else(|_| Self::mesh_to_manifold_simple(other));
         let mesh = Self::manifold_to_mesh(&m1.union(&m2));
         if mesh.faces.is_empty() {
             Self::concatenate(self, other)
@@ -568,8 +649,10 @@ impl Mesh {
         if other.faces.is_empty() {
             return self.clone();
         }
-        let m1 = Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
-        let m2 = Self::mesh_to_manifold(other).unwrap_or_else(|_| Self::mesh_to_manifold_simple(other));
+        let m1 =
+            Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
+        let m2 =
+            Self::mesh_to_manifold(other).unwrap_or_else(|_| Self::mesh_to_manifold_simple(other));
         let mesh = Self::manifold_to_mesh(&m1.difference(&m2));
         if mesh.faces.is_empty() {
             // An empty result is only plausible when `other` fully encloses `self`;
@@ -588,8 +671,10 @@ impl Mesh {
         if self.faces.is_empty() || other.faces.is_empty() {
             return Mesh::new();
         }
-        let m1 = Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
-        let m2 = Self::mesh_to_manifold(other).unwrap_or_else(|_| Self::mesh_to_manifold_simple(other));
+        let m1 =
+            Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
+        let m2 =
+            Self::mesh_to_manifold(other).unwrap_or_else(|_| Self::mesh_to_manifold_simple(other));
         Self::manifold_to_mesh(&m1.intersection(&m2))
     }
 
@@ -597,10 +682,15 @@ impl Mesh {
         let mut combined = left.clone();
         let offset = combined.vertices.len();
         combined.vertices.extend_from_slice(&right.vertices);
-        combined.faces.extend(right.faces.iter().map(|face| {
-            [face[0] + offset, face[1] + offset, face[2] + offset]
-        }));
-        combined.normals.resize(combined.vertices.len(), [0.0, 0.0, 1.0]);
+        combined.faces.extend(
+            right
+                .faces
+                .iter()
+                .map(|face| [face[0] + offset, face[1] + offset, face[2] + offset]),
+        );
+        combined
+            .normals
+            .resize(combined.vertices.len(), [0.0, 0.0, 1.0]);
         combined
     }
 
@@ -683,18 +773,18 @@ impl Mesh {
     fn mesh_to_manifold_simple(m: &Mesh) -> Manifold {
         Self::mesh_to_manifold(m).unwrap_or_else(|_| Manifold::empty())
     }
-    
+
     pub fn to_obj(&self) -> String {
         let mut out = String::new();
         for v in &self.vertices {
             out.push_str(&format!("v {} {} {}\n", v[0], v[1], v[2]));
         }
         for f in &self.faces {
-            out.push_str(&format!("f {} {} {}\n", f[0]+1, f[1]+1, f[2]+1));
+            out.push_str(&format!("f {} {} {}\n", f[0] + 1, f[1] + 1, f[2] + 1));
         }
         out
     }
-    
+
     pub fn to_stl(&self) -> String {
         let mut out = String::new();
         out.push_str("solid openscad\n");
@@ -705,17 +795,24 @@ impl Mesh {
             let a = self.vertices[f[0]];
             let b = self.vertices[f[1]];
             let c = self.vertices[f[2]];
-            
+
             // Calculate normal
-            let ab = [b[0]-a[0], b[1]-a[1], b[2]-a[2]];
-            let ac = [c[0]-a[0], c[1]-a[1], c[2]-a[2]];
-            let nx = ab[1]*ac[2] - ab[2]*ac[1];
-            let ny = ab[2]*ac[0] - ab[0]*ac[2];
-            let nz = ab[0]*ac[1] - ab[1]*ac[0];
-            let len = (nx*nx + ny*ny + nz*nz).sqrt();
-            let normal = if len > 0.0 { [nx/len, ny/len, nz/len] } else { [0.0, 0.0, 1.0] };
-            
-            out.push_str(&format!("facet normal {} {} {}\n", normal[0], normal[1], normal[2]));
+            let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+            let nx = ab[1] * ac[2] - ab[2] * ac[1];
+            let ny = ab[2] * ac[0] - ab[0] * ac[2];
+            let nz = ab[0] * ac[1] - ab[1] * ac[0];
+            let len = (nx * nx + ny * ny + nz * nz).sqrt();
+            let normal = if len > 0.0 {
+                [nx / len, ny / len, nz / len]
+            } else {
+                [0.0, 0.0, 1.0]
+            };
+
+            out.push_str(&format!(
+                "facet normal {} {} {}\n",
+                normal[0], normal[1], normal[2]
+            ));
             out.push_str("  outer loop\n");
             out.push_str(&format!("    vertex {} {} {}\n", a[0], a[1], a[2]));
             out.push_str(&format!("    vertex {} {} {}\n", b[0], b[1], b[2]));
@@ -726,9 +823,11 @@ impl Mesh {
         out.push_str("endsolid openscad\n");
         out
     }
-    
+
     pub fn to_binary_stl(&self) -> Vec<u8> {
-        let valid_faces = self.faces.iter()
+        let valid_faces = self
+            .faces
+            .iter()
             .filter(|face| self.valid_face(face))
             .collect::<Vec<_>>();
         let mut out = vec![0u8; 80];
@@ -751,11 +850,7 @@ impl Mesh {
             } else {
                 [0.0, 0.0, 1.0]
             };
-            for value in normal.into_iter()
-                .chain(a)
-                .chain(b)
-                .chain(c)
-            {
+            for value in normal.into_iter().chain(a).chain(b).chain(c) {
                 out.extend_from_slice(&(value as f32).to_le_bytes());
             }
             out.extend_from_slice(&0u16.to_le_bytes());
@@ -769,10 +864,14 @@ impl Primitive {
         if path.len() < 3 {
             return Vec::new();
         }
-        let area: f64 = path.iter().enumerate().map(|(index, &current)| {
-            let next = path[(index + 1) % path.len()];
-            points[current][0] * points[next][1] - points[next][0] * points[current][1]
-        }).sum();
+        let area: f64 = path
+            .iter()
+            .enumerate()
+            .map(|(index, &current)| {
+                let next = path[(index + 1) % path.len()];
+                points[current][0] * points[next][1] - points[next][0] * points[current][1]
+            })
+            .sum();
         let mut remaining = path.to_vec();
         if area < 0.0 {
             remaining.reverse();
@@ -787,13 +886,20 @@ impl Primitive {
                 let cross = (points[current][0] - points[previous][0])
                     * (points[next][1] - points[previous][1])
                     - (points[current][1] - points[previous][1])
-                    * (points[next][0] - points[previous][0]);
+                        * (points[next][0] - points[previous][0]);
                 if cross <= 0.0 {
                     continue;
                 }
                 let inside = remaining.iter().any(|&candidate| {
-                    candidate != previous && candidate != current && candidate != next
-                        && Self::point_in_triangle(points[candidate], points[previous], points[current], points[next])
+                    candidate != previous
+                        && candidate != current
+                        && candidate != next
+                        && Self::point_in_triangle(
+                            points[candidate],
+                            points[previous],
+                            points[current],
+                            points[next],
+                        )
                 });
                 if !inside {
                     triangles.push([previous, current, next]);
@@ -811,10 +917,14 @@ impl Primitive {
     }
 
     fn polygon_area(points: &[[f64; 2]], path: &[usize]) -> f64 {
-        path.iter().enumerate().map(|(index, &current)| {
-            let next = path[(index + 1) % path.len()];
-            points[current][0] * points[next][1] - points[next][0] * points[current][1]
-        }).sum::<f64>() / 2.0
+        path.iter()
+            .enumerate()
+            .map(|(index, &current)| {
+                let next = path[(index + 1) % path.len()];
+                points[current][0] * points[next][1] - points[next][0] * points[current][1]
+            })
+            .sum::<f64>()
+            / 2.0
     }
 
     fn point_in_polygon(point: [f64; 2], points: &[[f64; 2]], path: &[usize]) -> bool {
@@ -843,22 +953,35 @@ impl Primitive {
             && (cd_a > 0.0 && cd_b < 0.0 || cd_a < 0.0 && cd_b > 0.0)
     }
 
-    fn triangulate_polygon_paths(points: &[[f64; 2]], paths: &[Vec<usize>]) -> (Vec<[f64; 2]>, Vec<[usize; 3]>) {
+    fn triangulate_polygon_paths(
+        points: &[[f64; 2]],
+        paths: &[Vec<usize>],
+    ) -> (Vec<[f64; 2]>, Vec<[usize; 3]>) {
         if paths.len() <= 1 {
-            return (points.to_vec(), Self::triangulate_polygon(points, &paths[0]));
+            return (
+                points.to_vec(),
+                Self::triangulate_polygon(points, &paths[0]),
+            );
         }
 
         let outer = &paths[0];
         let mut merged = outer.clone();
 
         for hole in &paths[1..] {
-            let hole_index = hole.iter().enumerate()
-                .max_by(|(_, &a), (_, &b)| points[a][0].total_cmp(&points[b][0])
-                    .then_with(|| points[b][1].total_cmp(&points[a][1])))
+            let hole_index = hole
+                .iter()
+                .enumerate()
+                .max_by(|(_, &a), (_, &b)| {
+                    points[a][0]
+                        .total_cmp(&points[b][0])
+                        .then_with(|| points[b][1].total_cmp(&points[a][1]))
+                })
                 .map(|(index, _)| index)
                 .unwrap_or_else(|| 0);
             let hole_vertex = points[hole[hole_index]];
-            let outer_index = outer.iter().enumerate()
+            let outer_index = outer
+                .iter()
+                .enumerate()
                 .filter(|(_, &index)| {
                     let candidate = points[index];
                     if !Self::point_in_polygon(candidate, points, outer) {
@@ -867,7 +990,10 @@ impl Primitive {
                     for edge in 0..outer.len() {
                         let a = points[outer[edge]];
                         let b = points[outer[(edge + 1) % outer.len()]];
-                        if candidate != a && candidate != b && Self::segments_cross(hole_vertex, candidate, a, b) {
+                        if candidate != a
+                            && candidate != b
+                            && Self::segments_cross(hole_vertex, candidate, a, b)
+                        {
                             return false;
                         }
                     }
@@ -875,22 +1001,37 @@ impl Primitive {
                 })
                 .min_by(|(_, &a), (_, &b)| {
                     let distance = |index: usize| {
-                        let delta = [points[index][0] - hole_vertex[0], points[index][1] - hole_vertex[1]];
+                        let delta = [
+                            points[index][0] - hole_vertex[0],
+                            points[index][1] - hole_vertex[1],
+                        ];
                         delta[0] * delta[0] + delta[1] * delta[1]
                     };
                     distance(a).total_cmp(&distance(b))
                 })
                 .map(|(index, _)| index)
-                .unwrap_or_else(|| outer.iter().enumerate()
-                    .min_by(|(_, &a), (_, &b)| {
-                        let distance = |index: usize| {
-                            let delta = [points[index][0] - hole_vertex[0], points[index][1] - hole_vertex[1]];
-                            delta[0] * delta[0] + delta[1] * delta[1]
-                        };
-                        distance(a).total_cmp(&distance(b))
-                    }).map(|(index, _)| index).unwrap());
+                .unwrap_or_else(|| {
+                    outer
+                        .iter()
+                        .enumerate()
+                        .min_by(|(_, &a), (_, &b)| {
+                            let distance = |index: usize| {
+                                let delta = [
+                                    points[index][0] - hole_vertex[0],
+                                    points[index][1] - hole_vertex[1],
+                                ];
+                                delta[0] * delta[0] + delta[1] * delta[1]
+                            };
+                            distance(a).total_cmp(&distance(b))
+                        })
+                        .map(|(index, _)| index)
+                        .unwrap()
+                });
 
-            let position = merged.iter().position(|&index| index == outer[outer_index]).unwrap();
+            let position = merged
+                .iter()
+                .position(|&index| index == outer[outer_index])
+                .unwrap();
             let mut bridge = Vec::with_capacity(hole.len() + 2);
             bridge.extend(hole[hole_index..].iter().copied());
             bridge.extend(hole[..hole_index].iter().copied());
@@ -917,22 +1058,21 @@ impl Primitive {
         let d3 = sign(point, c, a);
         let has_negative = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
         let has_positive = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
-        !(has_negative && has_positive) && d1.abs() > f64::EPSILON
-            && d2.abs() > f64::EPSILON && d3.abs() > f64::EPSILON
+        !(has_negative && has_positive)
+            && d1.abs() > f64::EPSILON
+            && d2.abs() > f64::EPSILON
+            && d3.abs() > f64::EPSILON
     }
 
-    fn radial_segments(
-        radius: f64,
-        fn_: Option<usize>,
-        fa: Option<f64>,
-        fs: Option<f64>,
-    ) -> usize {
+    fn radial_segments(radius: f64, fn_: Option<usize>, fa: Option<f64>, fs: Option<f64>) -> usize {
         if let Some(segments) = fn_ {
             return segments.max(3);
         }
-        let by_angle = fa.filter(|value| *value > 0.0)
+        let by_angle = fa
+            .filter(|value| *value > 0.0)
             .map(|value| (360.0 / value).ceil() as usize);
-        let by_size = fs.filter(|value| *value > 0.0)
+        let by_size = fs
+            .filter(|value| *value > 0.0)
             .map(|value| (2.0 * std::f64::consts::PI * radius / value).ceil() as usize);
         by_angle.or(by_size).unwrap_or(16).max(3)
     }
@@ -944,13 +1084,27 @@ impl Primitive {
                 let seg = Self::radial_segments(*r, *fn_, *fa, *fs);
                 Mesh::sphere(*r, seg)
             }
-            Primitive::Cylinder { h, r1, r2, center, fn_, fa, fs, .. } => {
+            Primitive::Cylinder {
+                h,
+                r1,
+                r2,
+                center,
+                fn_,
+                fa,
+                fs,
+                ..
+            } => {
                 let seg = Self::radial_segments((*r1).max(*r2), *fn_, *fa, *fs);
                 Mesh::cylinder(*h, *r1, *r2, seg, *center)
             }
             Primitive::Square { size, center } => Mesh::square(*size, *center),
-            Primitive::Text { text, size, halign, valign, .. } =>
-                Mesh::text(text, *size, halign, valign),
+            Primitive::Text {
+                text,
+                size,
+                halign,
+                valign,
+                ..
+            } => Mesh::text(text, *size, halign, valign),
             Primitive::Circle { r, fn_, fa, fs, .. } => {
                 let seg = Self::radial_segments(*r, *fn_, *fa, *fs);
                 Mesh::circle(*r, seg)
@@ -974,7 +1128,10 @@ impl Primitive {
             Primitive::Polygon { points, paths } => {
                 let (polygon_points, faces) = Self::triangulate_polygon_paths(points, paths);
                 let mesh = Mesh {
-                    vertices: polygon_points.iter().map(|point| [point[0], point[1], 0.0]).collect(),
+                    vertices: polygon_points
+                        .iter()
+                        .map(|point| [point[0], point[1], 0.0])
+                        .collect(),
                     faces,
                     normals: vec![[0.0, 0.0, 1.0]; polygon_points.len()],
                 };
@@ -998,7 +1155,7 @@ impl CsgBuilder {
     pub fn from_node(root: CsgNode) -> Self {
         Self { root: Some(root) }
     }
-    
+
     pub fn add_primitive(&mut self, prim: Primitive) -> &mut Self {
         let node = CsgNode::Primitive(prim);
         self.root = Some(match self.root.take() {
@@ -1011,7 +1168,7 @@ impl CsgBuilder {
         });
         self
     }
-    
+
     pub fn translate(&mut self, v: [f64; 3]) -> &mut Self {
         self.root = self.root.take().map(|c| CsgNode::Transform {
             child: Box::new(c),
@@ -1023,7 +1180,7 @@ impl CsgBuilder {
         });
         self
     }
-    
+
     pub fn rotate(&mut self, v: [f64; 3]) -> &mut Self {
         self.root = self.root.take().map(|c| CsgNode::Transform {
             child: Box::new(c),
@@ -1035,7 +1192,7 @@ impl CsgBuilder {
         });
         self
     }
-    
+
     pub fn scale(&mut self, v: [f64; 3]) -> &mut Self {
         self.root = self.root.take().map(|c| CsgNode::Transform {
             child: Box::new(c),
@@ -1047,7 +1204,7 @@ impl CsgBuilder {
         });
         self
     }
-    
+
     pub fn mirror(&mut self, v: [f64; 3]) -> &mut Self {
         self.root = self.root.take().map(|c| CsgNode::Transform {
             child: Box::new(c),
@@ -1059,7 +1216,7 @@ impl CsgBuilder {
         });
         self
     }
-    
+
     pub fn matrix(&mut self, m: nalgebra::Matrix4<f64>) -> &mut Self {
         self.root = self.root.take().map(|c| CsgNode::Transform {
             child: Box::new(c),
@@ -1071,7 +1228,7 @@ impl CsgBuilder {
         });
         self
     }
-    
+
     pub fn union(&mut self, other: CsgNode) -> &mut Self {
         self.root = Some(match self.root.take() {
             Some(existing) => CsgNode::Boolean {
@@ -1083,7 +1240,7 @@ impl CsgBuilder {
         });
         self
     }
-    
+
     pub fn difference(&mut self, other: CsgNode) -> &mut Self {
         self.root = self.root.take().map(|c| CsgNode::Boolean {
             op: BooleanOp::Difference,
@@ -1092,7 +1249,7 @@ impl CsgBuilder {
         });
         self
     }
-    
+
     pub fn intersection(&mut self, other: CsgNode) -> &mut Self {
         self.root = self.root.take().map(|c| CsgNode::Boolean {
             op: BooleanOp::Intersection,
@@ -1101,7 +1258,7 @@ impl CsgBuilder {
         });
         self
     }
-    
+
     pub fn hull(&mut self, children: Vec<CsgNode>) -> &mut Self {
         let mut all = vec![];
         if let Some(root) = self.root.take() {
@@ -1111,7 +1268,7 @@ impl CsgBuilder {
         self.root = Some(CsgNode::Hull { children: all });
         self
     }
-    
+
     pub fn minkowski(&mut self, children: Vec<CsgNode>) -> &mut Self {
         let mut all = vec![];
         if let Some(root) = self.root.take() {
@@ -1121,7 +1278,7 @@ impl CsgBuilder {
         self.root = Some(CsgNode::Minkowski { children: all });
         self
     }
-    
+
     pub fn color(&mut self, color: [f64; 4]) -> &mut Self {
         self.root = self.root.take().map(|c| CsgNode::Color {
             child: Box::new(c),
@@ -1129,7 +1286,7 @@ impl CsgBuilder {
         });
         self
     }
-    
+
     pub fn build(self) -> Option<CsgNode> {
         self.root
     }
@@ -1170,9 +1327,8 @@ impl CsgNode {
                     ));
                 }
                 if let Some(values) = translate {
-                    transform *= nalgebra::Translation3::new(
-                        values[0], values[1], values[2],
-                    ).to_homogeneous();
+                    transform *= nalgebra::Translation3::new(values[0], values[1], values[2])
+                        .to_homogeneous();
                 }
                 mesh.transform(&transform);
                 mesh
@@ -1187,7 +1343,8 @@ impl CsgNode {
                 }
             }
             CsgNode::Hull { children } => {
-                let points = children.iter()
+                let points = children
+                    .iter()
                     .flat_map(|child| child.to_mesh().vertices)
                     .collect::<Vec<_>>();
                 Mesh::convex_hull(&points)
@@ -1197,12 +1354,20 @@ impl CsgNode {
                 Mesh::minkowski(&meshes)
             }
             CsgNode::Color { child, .. } => child.to_mesh(),
-            CsgNode::LinearExtrude { child, height, center, twist, scale } => {
-                child.to_mesh().linear_extrude(*height, *center, *twist, *scale)
-            }
-            CsgNode::RotateExtrude { child, angle, segments } => {
-                child.to_mesh().rotate_extrude(*angle, *segments)
-            }
+            CsgNode::LinearExtrude {
+                child,
+                height,
+                center,
+                twist,
+                scale,
+            } => child
+                .to_mesh()
+                .linear_extrude(*height, *center, *twist, *scale),
+            CsgNode::RotateExtrude {
+                child,
+                angle,
+                segments,
+            } => child.to_mesh().rotate_extrude(*angle, *segments),
         }
     }
 }

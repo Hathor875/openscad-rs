@@ -191,7 +191,7 @@ mod tests {
         assert!(matches!(tokens[3].0, Token::HexNumber));
     }
 
-#[test]
+    #[test]
     fn test_operators() {
         let input = "<= >= == != && || << >>";
         let tokens = lex(input);
