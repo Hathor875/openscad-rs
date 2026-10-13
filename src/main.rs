@@ -17,6 +17,21 @@ enum EvalResult {
     Timing(u128),
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RenderMode {
+    Shaded,
+    Wireframe,
+}
+
+impl RenderMode {
+    fn toggle(self) -> Self {
+        match self {
+            RenderMode::Shaded => RenderMode::Wireframe,
+            RenderMode::Wireframe => RenderMode::Shaded,
+        }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct Camera {
     yaw: f32,
@@ -56,6 +71,8 @@ struct OpenScadApp {
     jump_line: Option<usize>,
     show_grid: bool,
     orthographic: bool,
+    render_mode: RenderMode,
+    crease_angle: f32,
     cursor_world: Option<[f32; 3]>,
 }
 
@@ -82,6 +99,8 @@ impl OpenScadApp {
             jump_line: None,
             show_grid: true,
             orthographic: false,
+            render_mode: RenderMode::Shaded,
+            crease_angle: DEFAULT_WIREFRAME_CREASE_ANGLE_DEG,
             cursor_world: None,
         }
     }
@@ -668,6 +687,26 @@ impl eframe::App for OpenScadApp {
                     {
                         self.show_grid = !self.show_grid;
                     }
+                    if ui
+                        .selectable_label(self.render_mode == RenderMode::Wireframe, "Edges")
+                        .on_hover_text(
+                            "Draw the model as wireframe (edges only) instead of shaded surfaces",
+                        )
+                        .clicked()
+                    {
+                        self.render_mode = self.render_mode.toggle();
+                    }
+                    if self.render_mode == RenderMode::Wireframe {
+                        ui.add(
+                            egui::Slider::new(&mut self.crease_angle, 0.0..=60.0)
+                                .suffix("°")
+                                .text("Edge angle"),
+                        )
+                        .on_hover_text(
+                            "Draw edges sharper than this dihedral angle. 0° draws every edge \
+                             that is not perfectly flat; high values hide facets of curved surfaces.",
+                        );
+                    }
                     ui.separator();
                     if ui.button("Iso").clicked() {
                         self.camera.yaw = -0.785;
@@ -700,6 +739,8 @@ impl eframe::App for OpenScadApp {
                         self.camera,
                         self.show_grid,
                         self.orthographic,
+                        self.render_mode,
+                        self.crease_angle,
                         response.rect,
                     );
                 } else {
@@ -756,6 +797,8 @@ fn render_mesh_2d(
     camera: Camera,
     show_grid: bool,
     orthographic: bool,
+    render_mode: RenderMode,
+    crease_angle: f32,
     rect: egui::Rect,
 ) {
     let aspect = if rect.width() > 0.0 && rect.height() > 0.0 {
@@ -872,62 +915,128 @@ fn render_mesh_2d(
     if show_grid {
         let tick = step * 0.25;
         let font = egui::FontId::monospace(11.0);
+        let tick_color = egui::Color32::from_gray(140);
+        let label_color = egui::Color32::from_gray(150);
+        let format_tick = |c: f32| -> String {
+            if step >= 1.0 {
+                format!("{}", c as i64)
+            } else {
+                format!("{c:.2}")
+            }
+        };
         let mut label_k = -extent;
         while label_k <= extent + 0.001 {
             let c = label_k;
             if c.abs() > 0.001 {
-                draw_line(
-                    [c, -tick, 0.0],
-                    [c, tick, 0.0],
-                    egui::Color32::from_gray(140),
-                    1.0,
-                );
-                draw_line(
-                    [-tick, c, 0.0],
-                    [tick, c, 0.0],
-                    egui::Color32::from_gray(140),
-                    1.0,
-                );
+                draw_line([c, -tick, 0.0], [c, tick, 0.0], tick_color, 1.0);
+                draw_line([-tick, c, 0.0], [tick, c, 0.0], tick_color, 1.0);
             }
             if let Some(p) = project([c, 0.0, 0.0]) {
                 if rect.contains(p) && c.abs() > 0.001 {
-                    let text = if step >= 1.0 {
-                        format!("{}", c as i64)
-                    } else {
-                        format!("{c:.2}")
-                    };
                     painter.text(
                         p + egui::vec2(3.0, -14.0),
                         egui::Align2::LEFT_TOP,
-                        text,
+                        format_tick(c),
                         font.clone(),
-                        egui::Color32::from_gray(150),
+                        label_color,
                     );
                 }
             }
             if let Some(p) = project([0.0, c, 0.0]) {
                 if rect.contains(p) && c.abs() > 0.001 {
-                    let text = if step >= 1.0 {
-                        format!("{}", c as i64)
-                    } else {
-                        format!("{c:.2}")
-                    };
                     painter.text(
                         p + egui::vec2(3.0, 3.0),
                         egui::Align2::LEFT_TOP,
-                        text,
+                        format_tick(c),
                         font.clone(),
-                        egui::Color32::from_gray(150),
+                        label_color,
                     );
                 }
             }
             label_k += step;
         }
+
+        let mut z_k = step;
+        while z_k <= extent + 0.001 {
+            let c = z_k;
+            draw_line([-tick, 0.0, c], [tick, 0.0, c], tick_color, 1.0);
+            draw_line([0.0, -tick, c], [0.0, tick, c], tick_color, 1.0);
+            if let Some(p) = project([0.0, 0.0, c]) {
+                if rect.contains(p) {
+                    painter.text(
+                        p + egui::vec2(4.0, -7.0),
+                        egui::Align2::LEFT_TOP,
+                        format_tick(c),
+                        font.clone(),
+                        label_color,
+                    );
+                }
+            }
+            z_k += step;
+        }
     }
 
+    match render_mode {
+        RenderMode::Wireframe => {
+            draw_wireframe(painter, mesh, &indices, crease_angle, &project, rect)
+        }
+        RenderMode::Shaded => draw_shaded(
+            painter,
+            mesh,
+            &indices,
+            &normals,
+            (view, proj),
+            light_dir,
+            rect,
+        ),
+    }
+
+    if mesh.vertices.len() < 3 || mesh.indices.len() < 3 {
+        painter.text(
+            rect.center(),
+            egui::Align2::CENTER_CENTER,
+            "No geometry to display",
+            egui::FontId::proportional(16.0),
+            egui::Color32::GRAY,
+        );
+    }
+
+    let (_fwd, cam_right, cam_true_up) = camera_basis(eye, camera.target);
+
+    let origin = egui::pos2(rect.left() + 40.0, rect.bottom() - 40.0);
+    let gizmo_len = 26.0;
+    let axes: [([f32; 3], egui::Color32, &str); 3] = [
+        ([1.0, 0.0, 0.0], egui::Color32::from_rgb(230, 70, 70), "X"),
+        ([0.0, 1.0, 0.0], egui::Color32::from_rgb(70, 220, 70), "Y"),
+        ([0.0, 0.0, 1.0], egui::Color32::from_rgb(80, 130, 250), "Z"),
+    ];
+    for (dir, color, name) in axes {
+        let sx = dir[0] * cam_right[0] + dir[1] * cam_right[1] + dir[2] * cam_right[2];
+        let sy = -(dir[0] * cam_true_up[0] + dir[1] * cam_true_up[1] + dir[2] * cam_true_up[2]);
+        let end = origin + egui::vec2(sx * gizmo_len, sy * gizmo_len);
+        painter.line_segment([origin, end], egui::Stroke::new(2.0_f32, color));
+        painter.text(
+            end + egui::vec2(sx * 7.0, sy * 7.0),
+            egui::Align2::CENTER_CENTER,
+            name,
+            egui::FontId::proportional(12.0),
+            color,
+        );
+    }
+}
+
+fn draw_shaded(
+    painter: &egui::Painter,
+    mesh: &MeshData,
+    indices: &[[u32; 3]],
+    normals: &[[f32; 3]],
+    (view, proj): ([[f32; 4]; 4], [[f32; 4]; 4]),
+    light_dir: [f32; 3],
+    rect: egui::Rect,
+) {
     let mut triangles: Vec<([egui::epaint::Vertex; 3], f32)> = Vec::with_capacity(indices.len());
 
-    for tri in &indices {
+    for tri in indices {
         let mut verts = [egui::epaint::Vertex {
             pos: egui::Pos2::ZERO,
             uv: egui::Pos2::ZERO,
@@ -991,38 +1100,160 @@ fn render_mesh_2d(
         };
         painter.add(egui::Shape::Mesh(mesh_shape));
     }
+}
 
-    if mesh.vertices.len() < 3 || mesh.indices.len() < 3 {
-        painter.text(
-            rect.center(),
-            egui::Align2::CENTER_CENTER,
-            "No geometry to display",
-            egui::FontId::proportional(16.0),
-            egui::Color32::GRAY,
-        );
+/// Edges with a dihedral angle above this are drawn in wireframe mode.
+/// Below it the surface counts as smooth, so triangulation diagonals and
+/// facets of curved surfaces stay hidden. `0.0` draws every edge that is
+/// not perfectly flat.
+const DEFAULT_WIREFRAME_CREASE_ANGLE_DEG: f32 = 8.0;
+
+#[derive(Clone, Copy)]
+struct EdgeInfo {
+    first: [f32; 3],
+    second: [f32; 3],
+    count: u8,
+    crease: bool,
+}
+
+fn face_normal(a: [f32; 3], b: [f32; 3], c: [f32; 3]) -> [f32; 3] {
+    let ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let ac = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    normalize([
+        ab[1] * ac[2] - ab[2] * ac[1],
+        ab[2] * ac[0] - ab[0] * ac[2],
+        ab[0] * ac[1] - ab[1] * ac[0],
+    ])
+}
+
+/// Feature edges of the mesh: sharp creases plus boundaries of open meshes.
+/// Flat triangulation edges (dihedral angle ~0) are always skipped.
+fn feature_edges(mesh: &MeshData, indices: &[[u32; 3]], crease_angle_deg: f32) -> Vec<(u32, u32)> {
+    let vertex_count = mesh.vertices.len();
+    let cos_limit = crease_angle_deg.clamp(0.0, 180.0).to_radians().cos();
+    let mut edges: std::collections::HashMap<(u32, u32), EdgeInfo> =
+        std::collections::HashMap::new();
+
+    for tri in indices {
+        if tri.iter().any(|&i| i as usize >= vertex_count) {
+            continue;
+        }
+        let v = [
+            mesh.vertices[tri[0] as usize],
+            mesh.vertices[tri[1] as usize],
+            mesh.vertices[tri[2] as usize],
+        ];
+        let normal = face_normal(v[0], v[1], v[2]);
+        for k in 0..3 {
+            let a = tri[k];
+            let b = tri[(k + 1) % 3];
+            let edge = if a < b { (a, b) } else { (b, a) };
+            match edges.get_mut(&edge) {
+                Some(info) => {
+                    let other = if info.count == 1 {
+                        info.first
+                    } else {
+                        info.second
+                    };
+                    let dot = (normal[0] * other[0] + normal[1] * other[1] + normal[2] * other[2])
+                        .clamp(-1.0, 1.0);
+                    if dot < cos_limit {
+                        info.crease = true;
+                    }
+                    if info.count < 2 {
+                        info.second = normal;
+                    }
+                    info.count = info.count.saturating_add(1);
+                }
+                None => {
+                    edges.insert(
+                        edge,
+                        EdgeInfo {
+                            first: normal,
+                            second: normal,
+                            count: 1,
+                            crease: false,
+                        },
+                    );
+                }
+            }
+        }
     }
 
-    let (_fwd, cam_right, cam_true_up) = camera_basis(eye, camera.target);
+    edges
+        .into_iter()
+        .filter(|(_, info)| info.crease || info.count < 2)
+        .map(|(edge, _)| edge)
+        .collect()
+}
 
-    let origin = egui::pos2(rect.left() + 40.0, rect.bottom() - 40.0);
-    let gizmo_len = 26.0;
-    let axes: [([f32; 3], egui::Color32, &str); 3] = [
-        ([1.0, 0.0, 0.0], egui::Color32::from_rgb(230, 70, 70), "X"),
-        ([0.0, 1.0, 0.0], egui::Color32::from_rgb(70, 220, 70), "Y"),
-        ([0.0, 0.0, 1.0], egui::Color32::from_rgb(80, 130, 250), "Z"),
-    ];
-    for (dir, color, name) in axes {
-        let sx = dir[0] * cam_right[0] + dir[1] * cam_right[1] + dir[2] * cam_right[2];
-        let sy = -(dir[0] * cam_true_up[0] + dir[1] * cam_true_up[1] + dir[2] * cam_true_up[2]);
-        let end = origin + egui::vec2(sx * gizmo_len, sy * gizmo_len);
-        painter.line_segment([origin, end], egui::Stroke::new(2.0_f32, color));
-        painter.text(
-            end + egui::vec2(sx * 7.0, sy * 7.0),
-            egui::Align2::CENTER_CENTER,
-            name,
-            egui::FontId::proportional(12.0),
-            color,
-        );
+/// Draws only feature edges: sharp creases and boundaries of the mesh.
+/// Flat triangulation edges are skipped, so a cuboid shows 12 edges
+/// instead of every diagonal its side faces were split into.
+fn draw_wireframe<F>(
+    painter: &egui::Painter,
+    mesh: &MeshData,
+    indices: &[[u32; 3]],
+    crease_angle_deg: f32,
+    project: &F,
+    rect: egui::Rect,
+) where
+    F: Fn([f32; 3]) -> Option<egui::Pos2>,
+{
+    let vertex_count = mesh.vertices.len();
+
+    let mut segments: Vec<[egui::Pos2; 2]> = Vec::new();
+    for (a, b) in feature_edges(mesh, indices, crease_angle_deg) {
+        let (a, b) = (a as usize, b as usize);
+        if a >= vertex_count || b >= vertex_count {
+            continue;
+        }
+        let (pa, pb) = match (project(mesh.vertices[a]), project(mesh.vertices[b])) {
+            (Some(pa), Some(pb)) => (pa, pb),
+            _ => continue,
+        };
+        if (pa - pb).length_sq() <= 0.25 {
+            continue;
+        }
+        if !rect.intersects(egui::Rect::from_min_max(pa.min(pb), pa.max(pb))) {
+            continue;
+        }
+        segments.push([pa, pb]);
+    }
+
+    let color = egui::Color32::from_rgb(205, 215, 230);
+    let half_width = 0.5f32;
+    const SEGMENTS_PER_CHUNK: usize = 1500;
+
+    for chunk in segments.chunks(SEGMENTS_PER_CHUNK) {
+        let mut vertices: Vec<egui::epaint::Vertex> = Vec::with_capacity(chunk.len() * 4);
+        let mut idx: Vec<u32> = Vec::with_capacity(chunk.len() * 6);
+        for seg in chunk {
+            let (pa, pb) = (seg[0], seg[1]);
+            let dir = pb - pa;
+            let len = dir.length();
+            if len <= 0.0 {
+                continue;
+            }
+            let normal = egui::vec2(-dir.y, dir.x) * (half_width / len);
+            let base = vertices.len() as u32;
+            for p in [pa + normal, pb + normal, pb - normal, pa - normal] {
+                vertices.push(egui::epaint::Vertex {
+                    pos: p,
+                    uv: egui::Pos2::ZERO,
+                    color,
+                });
+            }
+            idx.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        }
+        if idx.is_empty() {
+            continue;
+        }
+        painter.add(egui::Shape::Mesh(egui::Mesh {
+            vertices,
+            indices: idx,
+            ..Default::default()
+        }));
     }
 }
 
@@ -1498,11 +1729,119 @@ fn mat4_mul_vec4(m: [[f32; 4]; 4], v: [f32; 4]) -> [f32; 4] {
     ]
 }
 
-fn run_cli(args: &[String]) -> Result<(), String> {
-    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
-        println!("Usage: openscad-rust <file.scad> [-o|--output <file.stl|file.obj>] [--binary]");
+use openscad_rust::csg::Mesh;
+
+fn load_mesh_or_scad(path: &str) -> Result<Mesh, String> {
+    let lower = path.to_ascii_lowercase();
+    if lower.ends_with(".scad") {
+        let parsed = Parser::parse_file(path)
+            .map_err(|error| format!("failed to parse '{path}': {error}"))?;
+        let env = Rc::new(Environment::new());
+        let mut exec = Executor::new(env);
+        exec.execute_source(&parsed)
+            .map_err(|error| format!("failed to evaluate '{path}': {error}"))?;
+        let mesh = exec
+            .build_mesh()
+            .ok_or_else(|| format!("'{path}' produced no geometry"))?;
+        Ok(mesh)
+    } else {
+        let data =
+            std::fs::read(path).map_err(|error| format!("failed to read '{path}': {error}"))?;
+        if lower.ends_with(".obj") {
+            Mesh::from_obj(&data)
+        } else {
+            Mesh::from_stl(&data)
+        }
+    }
+}
+
+fn write_ppm(path: &str, width: usize, height: usize, rgb: &[u8]) -> Result<(), String> {
+    let header = format!("P6\n{} {}\n255\n", width, height);
+    let mut data = header.into_bytes();
+    data.extend_from_slice(rgb);
+    std::fs::write(path, data).map_err(|error| format!("failed to write PPM '{path}': {error}"))
+}
+
+fn run_compare_cli(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") || args.is_empty() {
+        println!("Usage: openscad-rust compare <model_a.stl|a.scad> <model_b.stl|b.scad> [--samples <N>] [--json] [--render <output.ppm>]");
         return Ok(());
     }
+
+    let path_a = args
+        .get(0)
+        .ok_or_else(|| usage_error("missing first model path"))?;
+    let path_b = args
+        .get(1)
+        .ok_or_else(|| usage_error("missing second model path"))?;
+
+    let mut samples = 20_000;
+    let mut json = false;
+    let mut render_path = None;
+
+    let mut index = 2;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--samples" => {
+                index += 1;
+                let val = args
+                    .get(index)
+                    .ok_or_else(|| usage_error("missing value for --samples"))?;
+                samples = val
+                    .parse::<usize>()
+                    .map_err(|_| "invalid number for --samples")?;
+            }
+            "--json" => json = true,
+            "--render" => {
+                index += 1;
+                let path = args
+                    .get(index)
+                    .ok_or_else(|| usage_error("missing path after --render"))?;
+                render_path = Some(path.clone());
+            }
+            option => return Err(usage_error(&format!("unknown option '{option}'"))),
+        }
+        index += 1;
+    }
+
+    let mesh_a = load_mesh_or_scad(path_a)?;
+    let mesh_b = load_mesh_or_scad(path_b)?;
+
+    let report = openscad_rust::geometry::compare_meshes(&mesh_a, &mesh_b, samples);
+
+    if let Some(ref ppm_path) = render_path {
+        if !report.views.is_empty() {
+            let total_w = report.views[0].width;
+            let total_h = report.views[0].height * report.views.len();
+            let mut composite_rgb = Vec::with_capacity(total_w * total_h * 3);
+            for v in &report.views {
+                composite_rgb.extend_from_slice(&v.rgb_image);
+            }
+            write_ppm(ppm_path, total_w, total_h, &composite_rgb)?;
+        }
+    }
+
+    if json {
+        let json_str = serde_json::to_string_pretty(&report)
+            .map_err(|e| format!("failed to serialize JSON: {e}"))?;
+        println!("{json_str}");
+    } else {
+        println!("{}", report.format_text_report(path_a, path_b));
+    }
+
+    Ok(())
+}
+
+fn run_cli(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
+        println!("Usage:\n  openscad-rust <file.scad> [-o|--output <file.stl|file.obj>] [--binary]\n  openscad-rust compare <model_a.stl> <model_b.stl> [--samples <N>] [--json] [--render <output.ppm>]");
+        return Ok(());
+    }
+
+    if args.first().map(|s| s.as_str()) == Some("compare") {
+        return run_compare_cli(&args[1..]);
+    }
+
     let input = args
         .first()
         .ok_or_else(|| usage_error("missing input file"))?;
@@ -1567,7 +1906,7 @@ fn run_cli(args: &[String]) -> Result<(), String> {
 }
 
 fn usage_error(message: &str) -> String {
-    format!("{message}\n\nUsage: openscad-rust <file.scad> [-o|--output <file.stl|file.obj>] [--binary]")
+    format!("{message}\n\nUsage:\n  openscad-rust <file.scad> [-o|--output <file.stl|file.obj>] [--binary]\n  openscad-rust compare <model_a.stl> <model_b.stl> [--samples <N>] [--json] [--render <output.ppm>]")
 }
 
 fn main() {
@@ -1594,4 +1933,122 @@ fn main() {
         Box::new(|_cc| Box::new(OpenScadApp::new(_cc))),
     )
     .expect("failed to run eframe");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn cube_mesh() -> MeshData {
+        // Every quad is split into two triangles, so each of the six faces
+        // contributes one diagonal that must not show up as a feature edge.
+        let vertices = vec![
+            [0.0, 0.0, 0.0],
+            [1.0, 0.0, 0.0],
+            [1.0, 1.0, 0.0],
+            [0.0, 1.0, 0.0],
+            [0.0, 0.0, 1.0],
+            [1.0, 0.0, 1.0],
+            [1.0, 1.0, 1.0],
+            [0.0, 1.0, 1.0],
+        ];
+        let faces: [[u32; 4]; 6] = [
+            [0, 3, 2, 1],
+            [4, 5, 6, 7],
+            [0, 1, 5, 4],
+            [1, 2, 6, 5],
+            [2, 3, 7, 6],
+            [3, 0, 4, 7],
+        ];
+        let indices: Vec<u32> = faces
+            .iter()
+            .flat_map(|f| [f[0], f[1], f[2], f[0], f[2], f[3]])
+            .collect();
+        MeshData { vertices, indices }
+    }
+
+    fn prism(sides: u32) -> MeshData {
+        let mut vertices = Vec::new();
+        for &z in &[0.0f32, 1.0] {
+            for i in 0..sides {
+                let a = i as f32 / sides as f32 * std::f32::consts::TAU;
+                vertices.push([a.cos(), a.sin(), z]);
+            }
+        }
+        let mut indices = Vec::new();
+        for i in 0..sides {
+            let a = i;
+            let b = (i + 1) % sides;
+            let c = b + sides;
+            let d = a + sides;
+            indices.extend_from_slice(&[a, b, c, a, c, d]);
+        }
+        for i in 1..sides - 1 {
+            indices.extend_from_slice(&[0, i + 1, i]);
+            indices.extend_from_slice(&[sides, sides + i, sides + i + 1]);
+        }
+        MeshData { vertices, indices }
+    }
+
+    fn tri_list(mesh: &MeshData) -> Vec<[u32; 3]> {
+        mesh.indices
+            .as_chunks::<3>()
+            .0
+            .iter()
+            .map(|c| [c[0], c[1], c[2]])
+            .collect()
+    }
+
+    #[test]
+    fn cube_shows_only_12_edges() {
+        let mesh = cube_mesh();
+        let all = tri_list(&mesh);
+        assert_eq!(
+            all.len() * 3,
+            36,
+            "cube has 18 unique mesh edges, 6 of them diagonals"
+        );
+        let edges = feature_edges(&mesh, &all, DEFAULT_WIREFRAME_CREASE_ANGLE_DEG);
+        assert_eq!(edges.len(), 12, "only the 12 real cube edges are features");
+    }
+
+    #[test]
+    fn smooth_cylinder_facets_are_not_features() {
+        // 24-gon prism: side facets meet at 15 degrees, i.e. above the
+        // default threshold, so the vertical seams are drawn, and the
+        // top/bottom rims meet at 90 degrees.
+        let mesh = prism(24);
+        let all = tri_list(&mesh);
+        let edges = feature_edges(&mesh, &all, DEFAULT_WIREFRAME_CREASE_ANGLE_DEG);
+        assert_eq!(edges.len(), 24 * 3, "24 vertical seams plus 2 rims");
+
+        let edges = feature_edges(&mesh, &all, 20.0);
+        assert_eq!(
+            edges.len(),
+            48,
+            "above the 15 degree facet angle only the two rims are sharp"
+        );
+    }
+
+    #[test]
+    fn low_poly_sphere_is_still_visible() {
+        // Default `sphere(r=10)` is tessellated into facets meeting at
+        // roughly 11 degrees, so it must not disappear entirely.
+        let mesh = prism(32);
+        let all = tri_list(&mesh);
+        let edges = feature_edges(&mesh, &all, DEFAULT_WIREFRAME_CREASE_ANGLE_DEG);
+        assert!(
+            edges.len() > 48,
+            "a 32-gon prism at the default angle keeps its silhouette"
+        );
+    }
+
+    #[test]
+    fn flat_diagonals_are_never_drawn() {
+        // Even at 0 degrees a perfectly flat triangulation edge is skipped.
+        let mesh = cube_mesh();
+        let all = tri_list(&mesh);
+        let edges = feature_edges(&mesh, &all, 0.0);
+        assert_eq!(edges.len(), 12);
+    }
 }

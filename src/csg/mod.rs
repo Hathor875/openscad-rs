@@ -49,6 +49,12 @@ pub enum CsgNode {
         angle: f64,
         segments: usize,
     },
+    Offset {
+        child: Box<CsgNode>,
+        delta: f64,
+        r: f64,
+        chamfer: bool,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -913,10 +919,13 @@ impl Mesh {
                 *edges.entry(edge).or_default() += 1;
             }
         }
-        for ((a, b), count_edges) in edges {
-            if count_edges == 1 {
-                mesh.faces.push([a, b, b + count]);
-                mesh.faces.push([a, b + count, a + count]);
+        for face in &self.faces {
+            for &(a, b) in &[(face[0], face[1]), (face[1], face[2]), (face[2], face[0])] {
+                let edge = if a < b { (a, b) } else { (b, a) };
+                if edges.get(&edge) == Some(&1) {
+                    mesh.faces.push([a, b, b + count]);
+                    mesh.faces.push([a, b + count, a + count]);
+                }
             }
         }
         mesh.normals = vec![[0.0, 0.0, 1.0]; mesh.vertices.len()];
@@ -950,12 +959,236 @@ impl Mesh {
         mesh
     }
 
+    pub fn is_2d(&self) -> bool {
+        !self.vertices.is_empty() && self.vertices.iter().all(|v| v[2].abs() < 1e-4)
+    }
+
+    fn boolean_2d(left: &Mesh, right: &Mesh, op: BooleanOp) -> Mesh {
+        let left_3d = left.linear_extrude(1.0, true, 0.0, 1.0);
+        let right_3d = right.linear_extrude(1.0, true, 0.0, 1.0);
+        let m1 = match Self::mesh_to_manifold(&left_3d) {
+            Ok(m) => m,
+            Err(_) => return Mesh::new(),
+        };
+        let m2 = match Self::mesh_to_manifold(&right_3d) {
+            Ok(m) => m,
+            Err(_) => return Mesh::new(),
+        };
+        let result_manifold = match op {
+            BooleanOp::Union => m1.union(&m2),
+            BooleanOp::Difference => m1.difference(&m2),
+            BooleanOp::Intersection => m1.intersection(&m2),
+        };
+        let result_3d = Self::manifold_to_mesh(&result_manifold);
+        if result_3d.faces.is_empty() {
+            return Mesh::new();
+        }
+
+        let mut mesh_2d = Mesh::new();
+        let mut vertex_remap = std::collections::HashMap::new();
+
+        for face in &result_3d.faces {
+            let p0 = result_3d.vertices[face[0]];
+            let p1 = result_3d.vertices[face[1]];
+            let p2 = result_3d.vertices[face[2]];
+
+            if (p0[2] - 0.5).abs() < 1e-3
+                && (p1[2] - 0.5).abs() < 1e-3
+                && (p2[2] - 0.5).abs() < 1e-3
+            {
+                let u = [p1[0] - p0[0], p1[1] - p0[1]];
+                let v = [p2[0] - p0[0], p2[1] - p0[1]];
+                let cross_z = u[0] * v[1] - u[1] * v[0];
+                if cross_z > 1e-6 {
+                    let mut tri = [0; 3];
+                    for (i, &v_idx) in face.iter().enumerate() {
+                        let new_idx = *vertex_remap.entry(v_idx).or_insert_with(|| {
+                            let idx = mesh_2d.vertices.len();
+                            let pt = result_3d.vertices[v_idx];
+                            mesh_2d.vertices.push([pt[0], pt[1], 0.0]);
+                            mesh_2d.normals.push([0.0, 0.0, 1.0]);
+                            idx
+                        });
+                        tri[i] = new_idx;
+                    }
+                    mesh_2d.faces.push(tri);
+                }
+            }
+        }
+        mesh_2d
+    }
+
+    pub fn offset(&self, delta: f64, r: f64, chamfer: bool) -> Mesh {
+        if self.faces.is_empty() || self.vertices.is_empty() {
+            return Mesh::new();
+        }
+        let d = if delta != 0.0 { delta } else { r };
+        if d == 0.0 {
+            return self.clone();
+        }
+
+        let mut edge_counts = std::collections::HashMap::new();
+        for face in &self.faces {
+            for k in 0..3 {
+                let u = face[k];
+                let v = face[(k + 1) % 3];
+                let key = if u < v { (u, v) } else { (v, u) };
+                *edge_counts.entry(key).or_insert(0) += 1;
+            }
+        }
+
+        let mut next_vertex = std::collections::HashMap::new();
+        for face in &self.faces {
+            for k in 0..3 {
+                let u = face[k];
+                let v = face[(k + 1) % 3];
+                let key = if u < v { (u, v) } else { (v, u) };
+                if edge_counts.get(&key) == Some(&1) {
+                    next_vertex.insert(u, v);
+                }
+            }
+        }
+
+        if next_vertex.is_empty() {
+            return self.clone();
+        }
+
+        let mut loops = Vec::new();
+        while let Some(&start) = next_vertex.keys().next() {
+            let mut current = start;
+            let mut poly_loop = Vec::new();
+            while let Some(next) = next_vertex.remove(&current) {
+                poly_loop.push(current);
+                current = next;
+                if current == start {
+                    break;
+                }
+            }
+            if poly_loop.len() >= 3 {
+                loops.push(poly_loop);
+            }
+        }
+
+        let mut all_points_2d = Vec::new();
+        let mut all_paths = Vec::new();
+
+        for poly_indices in loops {
+            let mut pts: Vec<[f64; 2]> = poly_indices
+                .iter()
+                .map(|&idx| [self.vertices[idx][0], self.vertices[idx][1]])
+                .collect();
+
+            let mut area = 0.0;
+            let n = pts.len();
+            for i in 0..n {
+                let next = (i + 1) % n;
+                area += pts[i][0] * pts[next][1] - pts[next][0] * pts[i][1];
+            }
+            area *= 0.5;
+
+            let is_ccw = area > 0.0;
+            if !is_ccw {
+                pts.reverse();
+            }
+
+            let mut lines = Vec::with_capacity(n);
+            for i in 0..n {
+                let p1 = pts[i];
+                let p2 = pts[(i + 1) % n];
+                let dx = p2[0] - p1[0];
+                let dy = p2[1] - p1[1];
+                let len = (dx * dx + dy * dy).sqrt();
+                if len < 1e-9 {
+                    continue;
+                }
+                let nx = dy / len;
+                let ny = -dx / len;
+                let c = nx * p1[0] + ny * p1[1] + d;
+                lines.push((nx, ny, c, p1, p2, len));
+            }
+
+            if lines.len() < 3 {
+                continue;
+            }
+
+            let num_lines = lines.len();
+            let mut new_pts = Vec::new();
+
+            for i in 0..num_lines {
+                let prev_idx = (i + num_lines - 1) % num_lines;
+                let l_prev = lines[prev_idx];
+                let l_curr = lines[i];
+
+                let det = l_prev.0 * l_curr.1 - l_prev.1 * l_curr.0;
+                let is_convex_turn = det < -1e-7;
+
+                if det.abs() > 1e-9 {
+                    let inter_x = (l_prev.2 * l_curr.1 - l_prev.1 * l_curr.2) / det;
+                    let inter_y = (l_prev.0 * l_curr.2 - l_prev.2 * l_curr.0) / det;
+
+                    if r > 0.0 && is_convex_turn && d > 0.0 {
+                        let pt = l_curr.3;
+                        let start_angle = l_prev.1.atan2(l_prev.0);
+                        let mut end_angle = l_curr.1.atan2(l_curr.0);
+                        if end_angle < start_angle {
+                            end_angle += 2.0 * std::f64::consts::PI;
+                        }
+                        let steps = 4;
+                        for s in 0..=steps {
+                            let t = s as f64 / steps as f64;
+                            let ang = start_angle + t * (end_angle - start_angle);
+                            new_pts.push([pt[0] + r * ang.cos(), pt[1] + r * ang.sin()]);
+                        }
+                    } else if chamfer && is_convex_turn && d > 0.0 {
+                        let pt = l_curr.3;
+                        new_pts.push([pt[0] + d * l_prev.0, pt[1] + d * l_prev.1]);
+                        new_pts.push([pt[0] + d * l_curr.0, pt[1] + d * l_curr.1]);
+                    } else {
+                        new_pts.push([inter_x, inter_y]);
+                    }
+                } else {
+                    new_pts.push(pts[i]);
+                }
+            }
+
+            let mut new_area = 0.0;
+            let m = new_pts.len();
+            for i in 0..m {
+                let next = (i + 1) % m;
+                new_area += new_pts[i][0] * new_pts[next][1] - new_pts[next][0] * new_pts[i][1];
+            }
+            new_area *= 0.5;
+
+            if new_area > 1e-4 {
+                let start_idx = all_points_2d.len();
+                let path: Vec<usize> = (start_idx..start_idx + new_pts.len()).collect();
+                all_points_2d.extend(new_pts);
+                all_paths.push(path);
+            }
+        }
+
+        if all_paths.is_empty() {
+            return Mesh::new();
+        }
+
+        let (polygon_points, faces) =
+            Primitive::triangulate_polygon_paths(&all_points_2d, &all_paths);
+        Mesh {
+            vertices: polygon_points.iter().map(|p| [p[0], p[1], 0.0]).collect(),
+            faces,
+            normals: vec![[0.0, 0.0, 1.0]; polygon_points.len()],
+        }
+    }
+
     pub fn union(&self, other: &Mesh) -> Mesh {
         if self.faces.is_empty() {
             return other.clone();
         }
         if other.faces.is_empty() {
             return self.clone();
+        }
+        if self.is_2d() && other.is_2d() {
+            return Self::boolean_2d(self, other, BooleanOp::Union);
         }
         // Disjoint operands can be merged without a boolean evaluation.
         if Self::bounds_disjoint(self, other) {
@@ -980,6 +1213,9 @@ impl Mesh {
         if other.faces.is_empty() {
             return self.clone();
         }
+        if self.is_2d() && other.is_2d() {
+            return Self::boolean_2d(self, other, BooleanOp::Difference);
+        }
         let m1 =
             Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
         let m2 =
@@ -1001,6 +1237,9 @@ impl Mesh {
     pub fn intersection(&self, other: &Mesh) -> Mesh {
         if self.faces.is_empty() || other.faces.is_empty() {
             return Mesh::new();
+        }
+        if self.is_2d() && other.is_2d() {
+            return Self::boolean_2d(self, other, BooleanOp::Intersection);
         }
         let m1 =
             Self::mesh_to_manifold(self).unwrap_or_else(|_| Self::mesh_to_manifold_simple(self));
@@ -1624,6 +1863,18 @@ impl CsgBuilder {
         self
     }
 
+    pub fn offset(&mut self, delta: f64, r: f64, chamfer: bool) -> &mut Self {
+        if let Some(root) = self.root.take() {
+            self.root = Some(CsgNode::Offset {
+                child: Box::new(root),
+                delta,
+                r,
+                chamfer,
+            });
+        }
+        self
+    }
+
     pub fn build(self) -> Option<CsgNode> {
         self.root
     }
@@ -1705,6 +1956,12 @@ impl CsgNode {
                 angle,
                 segments,
             } => child.to_mesh().rotate_extrude(*angle, *segments),
+            CsgNode::Offset {
+                child,
+                delta,
+                r,
+                chamfer,
+            } => child.to_mesh().offset(*delta, *r, *chamfer),
         }
     }
 }

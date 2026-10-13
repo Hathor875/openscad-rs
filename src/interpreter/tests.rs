@@ -675,6 +675,39 @@ mod tests {
     }
 
     #[test]
+    fn test_2d_offset_and_difference() {
+        let code = r#"
+s = 10;
+difference() {
+    offset(delta = 0.6) polygon([
+        [-0.40*s, -0.50*s],
+        [ 0.40*s, -0.50*s],
+        [ 0.40*s,  0.05*s],
+        [ 0.50*s,  0.05*s],
+        [ 0.00,    0.50*s],
+        [-0.50*s,  0.05*s],
+        [-0.40*s,  0.05*s],
+    ]);
+    offset(delta = -0.6) polygon([
+        [-0.40*s, -0.50*s],
+        [ 0.40*s, -0.50*s],
+        [ 0.40*s,  0.05*s],
+        [ 0.50*s,  0.05*s],
+        [ 0.00,    0.50*s],
+        [-0.50*s,  0.05*s],
+        [-0.40*s,  0.05*s],
+    ]);
+}
+"#;
+        let parsed = Parser::parse(code).unwrap();
+        let mut exec = Executor::new(Rc::new(Environment::new()));
+        exec.execute_source(&parsed).unwrap();
+        let mesh = exec.build_mesh().unwrap();
+        assert_eq!(mesh.vertices.len(), 14);
+        assert_eq!(mesh.faces.len(), 14);
+    }
+
+    #[test]
     fn test_named_color_preserves_child_geometry() {
         let parsed = Parser::parse("color(\"lime\") cube(2);").unwrap();
         let mut exec = Executor::new(Rc::new(Environment::new()));

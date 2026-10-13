@@ -1300,12 +1300,27 @@ impl Executor {
                     .get_arg(arguments, "h")?
                     .or(self.get_positional_arg(arguments, 0)?)
                     .unwrap_or(1.0);
-                let r = self
-                    .get_arg(arguments, "r")?
-                    .or(self.get_positional_arg(arguments, 1)?);
                 let d = self.get_arg(arguments, "d")?.map(|value| value / 2.0);
-                let r1 = self.get_arg(arguments, "r1")?.or(r).or(d).unwrap_or(1.0);
-                let r2 = self.get_arg(arguments, "r2")?.or(r).or(d).unwrap_or(r1);
+                let d1 = self.get_arg(arguments, "d1")?.map(|value| value / 2.0);
+                let d2 = self.get_arg(arguments, "d2")?.map(|value| value / 2.0);
+
+                let r_named = self.get_arg(arguments, "r")?.or(d);
+                let r1_named = self.get_arg(arguments, "r1")?.or(d1);
+                let r2_named = self.get_arg(arguments, "r2")?.or(d2);
+
+                let pos_count = arguments.iter().filter(|a| a.name.is_empty()).count();
+                let (pos_r1, pos_r2) = if pos_count >= 3 {
+                    (
+                        self.get_positional_arg(arguments, 1)?,
+                        self.get_positional_arg(arguments, 2)?,
+                    )
+                } else {
+                    let p1 = self.get_positional_arg(arguments, 1)?;
+                    (p1, p1)
+                };
+
+                let r1 = r1_named.or(r_named).or(pos_r1).unwrap_or(1.0);
+                let r2 = r2_named.or(r_named).or(pos_r2).unwrap_or(r1);
                 if h <= 0.0 || r1 < 0.0 || r2 < 0.0 || (r1 == 0.0 && r2 == 0.0) {
                     return Err("cylinder requires positive height and radius".into());
                 }
@@ -1642,7 +1657,28 @@ impl Executor {
                 }
                 Ok(Some(()))
             }
-            "offset" | "projection" | "resize" | "group" | "assign" => {
+            "offset" => {
+                let r = self
+                    .get_arg(arguments, "r")?
+                    .or(self.get_positional_arg(arguments, 0)?)
+                    .unwrap_or(0.0);
+                let delta = self.get_arg(arguments, "delta")?.unwrap_or(0.0);
+                let chamfer = self.get_bool(arguments, "chamfer", false)?;
+
+                self.csg_stack.push(CsgBuilder::new());
+                for child in children {
+                    self.execute(child)?;
+                }
+                if let Some(child_csg) = self.csg_stack.pop().unwrap().build() {
+                    let mut b = CsgBuilder::from_node(child_csg);
+                    b.offset(delta, r, chamfer);
+                    if let Some(node) = b.build() {
+                        self.current_builder().union(node);
+                    }
+                }
+                Ok(Some(()))
+            }
+            "projection" | "resize" | "group" | "assign" => {
                 self.csg_stack.push(CsgBuilder::new());
                 for child in children {
                     self.execute(child)?;
