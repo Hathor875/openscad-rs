@@ -329,10 +329,8 @@ impl Parser {
         for inner in pair.into_inner() {
             // eprintln!("DEBUG parse_if_stmt: inner rule = {:?}, text = {:?}", inner.as_rule(), inner.as_str());
             match inner.as_rule() {
-                Rule::expression => {
-                    if condition.is_none() {
-                        condition = Some(Self::parse_expression(inner)?);
-                    }
+                Rule::expression if condition.is_none() => {
+                    condition = Some(Self::parse_expression(inner)?);
                 }
                 Rule::statement => {
                     // A bare `;` is a valid null branch: NopSCADlib writes
