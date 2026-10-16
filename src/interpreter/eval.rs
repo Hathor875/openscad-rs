@@ -635,6 +635,18 @@ impl Evaluator {
         callee_expr: Option<&Expression>,
     ) -> Result<Value, String> {
         if !name.is_empty() {
+            if let Some(builtin) = self.builtins.get_named_function(name) {
+                let mut evaluated_args = Vec::with_capacity(args.len());
+                for arg in args {
+                    let value = if let Some(expr) = &arg.value {
+                        self.eval(expr)?
+                    } else {
+                        Value::Undef
+                    };
+                    evaluated_args.push((arg.name.clone(), value));
+                }
+                return builtin(&evaluated_args);
+            }
             if let Some(builtin) = self.builtins.get_function(name) {
                 let mut evaluated_args = Vec::new();
                 for arg in args {
@@ -712,6 +724,12 @@ impl Evaluator {
     fn eval_index(&mut self, expr: &Expression, index: &Expression) -> Result<Value, String> {
         let vec_val = self.eval(expr)?;
         let idx_val = self.eval(index)?;
+        if let Value::Object(map) = &vec_val {
+            return Ok(match &idx_val {
+                Value::String(key) => map.get(key).cloned().unwrap_or(Value::Undef),
+                _ => Value::Undef,
+            });
+        }
         let Ok(idx_num) = idx_val.as_number() else {
             return Ok(Value::Undef);
         };
@@ -753,6 +771,10 @@ impl Evaluator {
                 "len" => Ok(Value::Number(v.len() as f64)),
                 _ => Err(format!("Vector has no field '{}'", field)),
             },
+            Value::Object(map) => map
+                .get(field)
+                .cloned()
+                .ok_or_else(|| format!("Object has no field '{}'", field)),
             _ => Err("Dot operator only works on vectors".into()),
         }
     }
@@ -870,6 +892,11 @@ fn values_equal(a: &Value, b: &Value) -> bool {
         (Value::Vector(a), Value::Vector(b)) => {
             a.len() == b.len() && a.iter().zip(b).all(|(x, y)| values_equal(x, y))
         }
+        (Value::Object(a), Value::Object(b)) => {
+            a.len() == b.len()
+                && a.iter()
+                    .all(|(key, x)| b.get(key).is_some_and(|y| values_equal(x, y)))
+        }
         (Value::Function(a), Value::Function(b)) => {
             if a.name == "anonymous" && b.name == "anonymous" {
                 Rc::ptr_eq(&a.captures, &b.captures) && a.body == b.body
@@ -917,6 +944,7 @@ fn is_tolerable(error: &str) -> bool {
         || error.starts_with("Recursion detected")
         || error.starts_with("Dot operator only works on vectors")
         || error.starts_with("Vector has no field")
+        || error.starts_with("Object has no field")
         || error.starts_with("sqrt of negative")
         || error.starts_with("Range step cannot be zero")
         || error.starts_with("Bad range parameter")
