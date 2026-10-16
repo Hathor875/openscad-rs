@@ -237,7 +237,18 @@ impl fmt::Display for Value {
                 }
                 write!(f, "]")
             }
-            Value::Function(func) => write!(f, "function {}()", func.name),
+            Value::Function(func) => {
+                let params = func
+                    .params
+                    .iter()
+                    .map(|(name, default)| match default {
+                        Some(expr) => format!("{name} = {}", expr.to_source()),
+                        None => name.clone(),
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                write!(f, "function({params}) {}", func.body.to_source())
+            }
             Value::Module(mod_) => write!(f, "module {}()", mod_.name),
             Value::Object(map) => {
                 write!(f, "{{")?;

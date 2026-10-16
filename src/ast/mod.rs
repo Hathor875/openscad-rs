@@ -50,6 +50,18 @@ pub enum UnaryOp {
     Positive,
 }
 
+impl fmt::Display for UnaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let symbol = match self {
+            UnaryOp::Not => "!",
+            UnaryOp::BinaryNot => "~",
+            UnaryOp::Negate => "-",
+            UnaryOp::Positive => "+",
+        };
+        f.write_str(symbol)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BinaryOp {
     LogicalAnd,
@@ -70,6 +82,32 @@ pub enum BinaryOp {
     GreaterEqual,
     Equal,
     NotEqual,
+}
+
+impl fmt::Display for BinaryOp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let symbol = match self {
+            BinaryOp::LogicalAnd => "&&",
+            BinaryOp::LogicalOr => "||",
+            BinaryOp::Exponent => "^",
+            BinaryOp::Multiply => "*",
+            BinaryOp::Divide => "/",
+            BinaryOp::Modulo => "%",
+            BinaryOp::Plus => "+",
+            BinaryOp::Minus => "-",
+            BinaryOp::ShiftLeft => "<<",
+            BinaryOp::ShiftRight => ">>",
+            BinaryOp::BinaryAnd => "&",
+            BinaryOp::BinaryOr => "|",
+            BinaryOp::Less => "<",
+            BinaryOp::LessEqual => "<=",
+            BinaryOp::Greater => ">",
+            BinaryOp::GreaterEqual => ">=",
+            BinaryOp::Equal => "==",
+            BinaryOp::NotEqual => "!=",
+        };
+        f.write_str(symbol)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -161,6 +199,149 @@ impl Expression {
             Expression::ForC { span, .. } => *span,
             Expression::Each { span, .. } => *span,
             Expression::Vector(_, s) => *s,
+        }
+    }
+
+    /// Render the expression back to OpenSCAD source syntax.
+    ///
+    /// Used when `echo()` prints a function value, mirroring the upstream
+    /// OpenSCAD format `function(a, b = 2) (a + b)`.
+    pub fn to_source(&self) -> String {
+        fn arg(arg: &Assignment) -> String {
+            match (&arg.name, &arg.value) {
+                (name, Some(expr)) if !name.is_empty() => format!("{name} = {}", expr.to_source()),
+                (_, Some(expr)) => expr.to_source(),
+                (name, None) => name.clone(),
+            }
+        }
+        fn args(list: &[Assignment]) -> String {
+            list.iter().map(arg).collect::<Vec<_>>().join(", ")
+        }
+
+        match self {
+            Expression::Literal(lit, _) => lit.to_string(),
+            Expression::UnaryOp(op, expr, _) => format!("{op}{}", expr.to_source()),
+            Expression::BinaryOp(op, left, right, _) => {
+                format!("({} {} {})", left.to_source(), op, right.to_source())
+            }
+            Expression::TernaryOp(cond, then_branch, else_branch, _) => format!(
+                "({} ? {} : {})",
+                cond.to_source(),
+                then_branch.to_source(),
+                else_branch.to_source()
+            ),
+            Expression::If {
+                condition,
+                then_branch,
+                else_branch,
+                ..
+            } => match else_branch {
+                Some(else_branch) => format!(
+                    "if ({}) {} else {}",
+                    condition.to_source(),
+                    then_branch.to_source(),
+                    else_branch.to_source()
+                ),
+                None => format!("if ({}) {}", condition.to_source(), then_branch.to_source()),
+            },
+            Expression::ArrayLookup(expr, index, _) => {
+                format!("{}[{}]", expr.to_source(), index.to_source())
+            }
+            Expression::Lookup(name, _) => name.clone(),
+            Expression::MemberLookup(expr, field, _) => {
+                format!("{}.{}", expr.to_source(), field)
+            }
+            Expression::FunctionCall {
+                name,
+                args: call_args,
+                expr,
+                ..
+            } => {
+                let callee = match expr {
+                    Some(expr) => expr.to_source(),
+                    None => name.clone(),
+                };
+                format!("{callee}({})", args(call_args))
+            }
+            Expression::FunctionDef { params, body, .. } => {
+                format!("function({}) {}", args(params), body.to_source())
+            }
+            Expression::Let {
+                args: bindings,
+                body,
+                ..
+            } => format!("let({}) {}", args(bindings), body.to_source()),
+            Expression::Assert {
+                args: check, body, ..
+            } => {
+                let call = format!("assert({})", args(check));
+                match body {
+                    Some(body) => format!("{call} {}", body.to_source()),
+                    None => call,
+                }
+            }
+            Expression::Echo {
+                args: echo_args,
+                body,
+                ..
+            } => {
+                let call = format!("echo({})", args(echo_args));
+                match body {
+                    Some(body) => format!("{call} {}", body.to_source()),
+                    None => call,
+                }
+            }
+            Expression::Range {
+                start, step, end, ..
+            } => match step {
+                Some(step) => format!(
+                    "[{}:{}:{}]",
+                    start.to_source(),
+                    step.to_source(),
+                    end.to_source()
+                ),
+                None => format!("[{}:{}]", start.to_source(), end.to_source()),
+            },
+            Expression::For {
+                args: loop_args,
+                condition,
+                body,
+                ..
+            } => {
+                let head = match condition {
+                    Some(cond) => format!("for ({} : {})", args(loop_args), cond.to_source()),
+                    None => format!("for ({})", args(loop_args)),
+                };
+                format!("{head} {}", body.to_source())
+            }
+            Expression::ForC {
+                init,
+                condition,
+                update,
+                body,
+                ..
+            } => {
+                let cond = condition
+                    .as_ref()
+                    .map(|expr| expr.to_source())
+                    .unwrap_or_default();
+                format!(
+                    "for ({}; {}; {}) {}",
+                    args(init),
+                    cond,
+                    args(update),
+                    body.to_source()
+                )
+            }
+            Expression::Each { body, .. } => format!("each {}", body.to_source()),
+            Expression::Vector(exprs, _) => format!(
+                "[{}]",
+                exprs
+                    .iter()
+                    .map(|expr| expr.to_source())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ),
         }
     }
 }
