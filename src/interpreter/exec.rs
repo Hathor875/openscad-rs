@@ -1344,8 +1344,21 @@ impl Executor {
                 Ok(Some(()))
             }
             "square" => {
-                let size = if let Some(s) = self.get_arg(arguments, "size")? {
-                    [s, s]
+                let size = if let Some(value) = self.get_vector(arguments, "size")? {
+                    match value {
+                        Value::Number(s) => [s, s],
+                        Value::Vector(values) => [
+                            values
+                                .first()
+                                .and_then(|v| v.as_number().ok())
+                                .unwrap_or(1.0),
+                            values
+                                .get(1)
+                                .and_then(|v| v.as_number().ok())
+                                .unwrap_or(1.0),
+                        ],
+                        _ => [1.0, 1.0],
+                    }
                 } else {
                     [
                         self.get_arg(arguments, "x")?.unwrap_or(1.0),

@@ -1,10 +1,13 @@
+use crate::csg::TextLayout;
 use crate::interpreter::value::Value;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 type BuiltinFn = fn(Vec<Value>) -> Result<Value, String>;
+type NamedBuiltinFn = fn(&[(String, Value)]) -> Result<Value, String>;
 
 pub struct Builtins {
     functions: HashMap<String, BuiltinFn>,
+    named_functions: HashMap<String, NamedBuiltinFn>,
 }
 
 impl Builtins {
@@ -70,11 +73,24 @@ impl Builtins {
         functions.insert("ord".to_string(), builtin_ord as BuiltinFn);
         functions.insert("rands".to_string(), builtin_rands as BuiltinFn);
 
-        Self { functions }
+        let mut named_functions = HashMap::new();
+        named_functions.insert(
+            "textmetrics".to_string(),
+            builtin_textmetrics as NamedBuiltinFn,
+        );
+
+        Self {
+            functions,
+            named_functions,
+        }
     }
 
     pub fn get_function(&self, name: &str) -> Option<BuiltinFn> {
         self.functions.get(name).copied()
+    }
+
+    pub fn get_named_function(&self, name: &str) -> Option<NamedBuiltinFn> {
+        self.named_functions.get(name).copied()
     }
 }
 
@@ -930,4 +946,104 @@ fn builtin_posmod(args: Vec<Value>) -> Result<Value, String> {
         return Err("posmod divisor cannot be zero".into());
     }
     Ok(Value::Number(values[0].rem_euclid(values[1].abs())))
+}
+
+/// Bind `(name, value)` argument pairs to `params`, filling in positional
+/// arguments (empty names) in order and leaving unspecified params `Undef`.
+fn bind_named_params(args: &[(String, Value)], params: &[&str]) -> Vec<Value> {
+    let mut positional = args.iter().filter(|(name, _)| name.is_empty());
+    params
+        .iter()
+        .map(|param| {
+            args.iter()
+                .find(|(name, _)| name == param)
+                .or_else(|| positional.next())
+                .map(|(_, value)| value.clone())
+                .unwrap_or(Value::Undef)
+        })
+        .collect()
+}
+
+fn named_number(value: Option<&Value>, default: f64) -> Result<f64, String> {
+    match value {
+        None | Some(Value::Undef) => Ok(default),
+        Some(value) => value.as_number(),
+    }
+}
+
+fn named_string(value: Option<&Value>, default: &str) -> Result<String, String> {
+    match value {
+        None | Some(Value::Undef) => Ok(default.to_string()),
+        Some(Value::String(s)) => Ok(s.clone()),
+        Some(value) => Err(format!("textmetrics expects a string, got {}", value)),
+    }
+}
+
+/// `textmetrics(text, size, font, halign, valign, spacing)` — returns an
+/// object describing how `text()` would lay out the same arguments, using
+/// the shared placeholder layout in [`TextLayout`].
+fn builtin_textmetrics(args: &[(String, Value)]) -> Result<Value, String> {
+    let bound = bind_named_params(
+        args,
+        &["text", "size", "font", "halign", "valign", "spacing"],
+    );
+    let text = match bound.first() {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Undef) | None => String::new(),
+        Some(other) => {
+            return Err(format!(
+                "textmetrics expects text to be a string, got {}",
+                other
+            ))
+        }
+    };
+    let size = named_number(bound.get(1), 10.0)?;
+    if size <= 0.0 {
+        return Err("textmetrics expects size to be positive".into());
+    }
+    // The placeholder engine has no fonts; accept and ignore the name.
+    let _font = named_string(bound.get(2), "")?;
+    let halign = named_string(bound.get(3), "left")?;
+    if !matches!(halign.as_str(), "left" | "center" | "right") {
+        return Err("textmetrics expects halign to be left, center, or right".into());
+    }
+    let valign = named_string(bound.get(4), "baseline")?;
+    if !matches!(valign.as_str(), "baseline" | "bottom" | "center" | "top") {
+        return Err("textmetrics expects valign to be baseline, bottom, center, or top".into());
+    }
+    let spacing = named_number(bound.get(5), 1.0)?;
+
+    let layout = TextLayout::new(&text, size, spacing, &halign, &valign);
+    let mut object = BTreeMap::new();
+    object.insert(
+        "position".to_string(),
+        Value::Vector(vec![
+            Value::Number(layout.offset_x),
+            Value::Number(layout.offset_y),
+        ]),
+    );
+    object.insert(
+        "size".to_string(),
+        Value::Vector(vec![
+            Value::Number(layout.width),
+            Value::Number(layout.height),
+        ]),
+    );
+    // Placeholder glyphs sit on the baseline (descent 0) and fill one em.
+    object.insert("ascent".to_string(), Value::Number(size));
+    object.insert("descent".to_string(), Value::Number(0.0));
+    // No left bearing in the placeholder engine, so the baseline starts
+    // at the bounding-box corner.
+    object.insert(
+        "offset".to_string(),
+        Value::Vector(vec![
+            Value::Number(layout.offset_x),
+            Value::Number(layout.offset_y),
+        ]),
+    );
+    object.insert(
+        "advance".to_string(),
+        Value::Vector(vec![Value::Number(layout.width), Value::Number(0.0)]),
+    );
+    Ok(Value::Object(object))
 }

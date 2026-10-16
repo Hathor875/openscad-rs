@@ -1389,6 +1389,192 @@ difference() {
         assert_eq!(env.get("a"), Some(crate::interpreter::Value::Number(42.0)));
     }
 
+    fn object_get<'a>(value: &'a Value, key: &str) -> Option<&'a Value> {
+        match value {
+            Value::Object(map) => map.get(key),
+            _ => None,
+        }
+    }
+
+    fn number_at(value: Option<&Value>, index: usize) -> Option<f64> {
+        match value? {
+            Value::Vector(items) => match items.get(index)? {
+                Value::Number(n) => Some(*n),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn test_textmetrics_returns_upstream_object_shape() {
+        let env = eval_source("tm = textmetrics(\"Hello\", size = 10);").unwrap();
+        let Some(Value::Object(map)) = env.get("tm") else {
+            panic!("textmetrics did not return an object");
+        };
+        for key in ["position", "size", "ascent", "descent", "offset", "advance"] {
+            assert!(map.contains_key(key), "missing key {key}");
+        }
+        // "Hello" = 5 glyphs: 5*6 + 4*1 = 34 wide, one em (10) tall.
+        assert_eq!(
+            object_get(&env.get("tm").unwrap(), "size"),
+            Some(&Value::Vector(vec![
+                Value::Number(34.0),
+                Value::Number(10.0),
+            ]))
+        );
+        assert_eq!(
+            object_get(&env.get("tm").unwrap(), "ascent"),
+            Some(&Value::Number(10.0))
+        );
+        assert_eq!(
+            object_get(&env.get("tm").unwrap(), "descent"),
+            Some(&Value::Number(0.0))
+        );
+        assert_eq!(
+            number_at(object_get(&env.get("tm").unwrap(), "advance"), 0),
+            Some(34.0)
+        );
+        assert_eq!(
+            number_at(object_get(&env.get("tm").unwrap(), "position"), 0),
+            Some(0.0)
+        );
+    }
+
+    #[test]
+    fn test_textmetrics_default_size_is_ten() {
+        let env = eval_source("tm = textmetrics(\"Hi\");").unwrap();
+        let value = env.get("tm").unwrap();
+        assert_eq!(object_get(&value, "ascent"), Some(&Value::Number(10.0)));
+        // "Hi" = 2 glyphs: 2*6 + 1*1 = 13 wide.
+        assert_eq!(
+            object_get(&value, "size"),
+            Some(&Value::Vector(vec![
+                Value::Number(13.0),
+                Value::Number(10.0)
+            ]))
+        );
+    }
+
+    #[test]
+    fn test_textmetrics_alignment_shifts_position() {
+        let env = eval_source(
+            "tm = textmetrics(\"AB\", size = 10, halign = \"center\", valign = \"top\");",
+        )
+        .unwrap();
+        let value = env.get("tm").unwrap();
+        // Width 13 -> centered left edge -6.5; top-aligned bottom edge -10.
+        assert_eq!(number_at(object_get(&value, "position"), 0), Some(-6.5));
+        assert_eq!(number_at(object_get(&value, "position"), 1), Some(-10.0));
+    }
+
+    #[test]
+    fn test_textmetrics_supports_dot_and_index_access() {
+        let env = eval_source(
+            "tm = textmetrics(\"AB\", size = 10); \
+             a = tm.size.x; b = tm[\"ascent\"]; c = tm.advance[0];",
+        )
+        .unwrap();
+        assert_eq!(env.get("a"), Some(Value::Number(13.0)));
+        assert_eq!(env.get("b"), Some(Value::Number(10.0)));
+        assert_eq!(env.get("c"), Some(Value::Number(13.0)));
+    }
+
+    #[test]
+    fn test_textmetrics_rejects_bad_arguments_with_undef() {
+        let env = eval_source(
+            "a = textmetrics(42); \
+             b = textmetrics(\"X\", size = -1); \
+             c = textmetrics(\"X\", halign = \"middle\"); \
+             d = textmetrics(\"X\", valign = \"sideways\");",
+        )
+        .unwrap();
+        assert_eq!(env.get("a"), Some(Value::Undef));
+        assert_eq!(env.get("b"), Some(Value::Undef));
+        assert_eq!(env.get("c"), Some(Value::Undef));
+        assert_eq!(env.get("d"), Some(Value::Undef));
+    }
+
+    #[test]
+    fn test_textmetrics_empty_string_is_zero_width() {
+        let env = eval_source("tm = textmetrics(\"\");").unwrap();
+        let value = env.get("tm").unwrap();
+        assert_eq!(
+            object_get(&value, "size"),
+            Some(&Value::Vector(vec![
+                Value::Number(0.0),
+                Value::Number(10.0)
+            ]))
+        );
+        assert_eq!(number_at(object_get(&value, "advance"), 0), Some(0.0));
+    }
+
+    #[test]
+    fn test_textmetrics_unknown_field_is_undef() {
+        let env = eval_source("tm = textmetrics(\"A\"); x = tm.width;").unwrap();
+        assert_eq!(env.get("x"), Some(Value::Undef));
+    }
+
+    #[test]
+    fn test_textmetrics_matches_text_module_bbox() {
+        use crate::csg::Mesh;
+        // The builtin must describe exactly the geometry `text()` emits.
+        for (text, size, halign, valign) in [
+            ("Hello", 10.0, "left", "baseline"),
+            ("AB", 10.0, "center", "top"),
+            ("Wide Glyphs", 7.5, "right", "center"),
+        ] {
+            let layout = Mesh::text(text, size, halign, valign);
+            let min_x = layout
+                .vertices
+                .iter()
+                .map(|v| v[0])
+                .fold(f64::INFINITY, f64::min);
+            let max_x = layout
+                .vertices
+                .iter()
+                .map(|v| v[0])
+                .fold(f64::NEG_INFINITY, f64::max);
+            let min_y = layout
+                .vertices
+                .iter()
+                .map(|v| v[1])
+                .fold(f64::INFINITY, f64::min);
+            let max_y = layout
+                .vertices
+                .iter()
+                .map(|v| v[1])
+                .fold(f64::NEG_INFINITY, f64::max);
+            let env = eval_source(&format!(
+                "tm = textmetrics(\"{text}\", size = {size}, halign = \"{halign}\", valign = \"{valign}\");"
+            ))
+            .unwrap();
+            let value = env.get("tm").unwrap();
+            let position_x = number_at(object_get(&value, "position"), 0).unwrap();
+            let position_y = number_at(object_get(&value, "position"), 1).unwrap();
+            let size_x = number_at(object_get(&value, "size"), 0).unwrap();
+            let size_y = number_at(object_get(&value, "size"), 1).unwrap();
+            assert!(
+                (position_x - min_x).abs() < 1e-9 && (max_x - (position_x + size_x)).abs() < 1e-9,
+                "x bbox mismatch for {}: metrics [{}, {}] vs mesh [{}, {}]",
+                text,
+                position_x,
+                position_x + size_x,
+                min_x,
+                max_x
+            );
+            assert!(
+                (position_y - min_y).abs() < 1e-9 && (max_y - (position_y + size_y)).abs() < 1e-9,
+                "y bbox mismatch for {}: metrics [{}, {}] vs mesh [{}, {}]",
+                text,
+                position_y,
+                position_y + size_y,
+                min_y,
+                max_y
+            );
+        }
+    }
+
     fn unique_fixture_dir(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("openscad-rust-{}-{}", name, std::process::id()))
     }

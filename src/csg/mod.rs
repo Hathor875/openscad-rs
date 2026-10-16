@@ -137,6 +137,52 @@ pub struct Mesh {
     pub normals: Vec<[f64; 3]>,
 }
 
+/// Placement of a text block under the placeholder layout engine, which
+/// models every glyph as a `0.6 * size` wide by `size` tall box.
+///
+/// Shared by [`Mesh::text`] and the `textmetrics()` builtin so that the
+/// reported metrics always describe the geometry `text()` actually emits.
+#[derive(Debug, Clone, Copy)]
+pub struct TextLayout {
+    /// Width of the bounding box around all glyph boxes.
+    pub width: f64,
+    /// Height of the bounding box (one em in the placeholder engine).
+    pub height: f64,
+    /// X coordinate of the bounding-box lower-left corner.
+    pub offset_x: f64,
+    /// Y coordinate of the bounding-box lower-left corner.
+    pub offset_y: f64,
+}
+
+impl TextLayout {
+    pub fn new(text: &str, size: f64, spacing: f64, halign: &str, valign: &str) -> Self {
+        let glyph_width = size * 0.6;
+        let gap = size * 0.1 * spacing;
+        let count = text.chars().count();
+        let width = if count > 0 {
+            count as f64 * glyph_width + count.saturating_sub(1) as f64 * gap
+        } else {
+            0.0
+        };
+        let offset_x = match halign {
+            "center" => -width / 2.0,
+            "right" => -width,
+            _ => 0.0,
+        };
+        let offset_y = match valign {
+            "center" => -size / 2.0,
+            "top" => -size,
+            _ => 0.0,
+        };
+        Self {
+            width,
+            height: size,
+            offset_x,
+            offset_y,
+        }
+    }
+}
+
 impl Mesh {
     pub fn new() -> Self {
         Self {
@@ -411,30 +457,18 @@ impl Mesh {
     }
 
     pub fn text(text: &str, size: f64, halign: &str, valign: &str) -> Self {
+        let layout = TextLayout::new(text, size, 1.0, halign, valign);
         let glyph_width = size * 0.6;
-        let spacing = size * 0.1;
-        let width = text.chars().count() as f64 * glyph_width
-            + text.chars().count().saturating_sub(1) as f64 * spacing;
-        let offset_x = match halign {
-            "center" => -width / 2.0,
-            "right" => -width,
-            _ => 0.0,
-        };
-        let offset_y = match valign {
-            "center" => -size / 2.0,
-            "top" => -size,
-            "baseline" | "bottom" => 0.0,
-            _ => 0.0,
-        };
+        let gap = size * 0.1;
         let mut mesh = Mesh::new();
         for (index, _) in text.chars().enumerate() {
-            let x = offset_x + index as f64 * (glyph_width + spacing);
+            let x = layout.offset_x + index as f64 * (glyph_width + gap);
             let base = mesh.vertices.len();
             mesh.vertices.extend([
-                [x, offset_y, 0.0],
-                [x + glyph_width, offset_y, 0.0],
-                [x + glyph_width, offset_y + size, 0.0],
-                [x, offset_y + size, 0.0],
+                [x, layout.offset_y, 0.0],
+                [x + glyph_width, layout.offset_y, 0.0],
+                [x + glyph_width, layout.offset_y + size, 0.0],
+                [x, layout.offset_y + size, 0.0],
             ]);
             mesh.faces
                 .extend([[base, base + 1, base + 2], [base, base + 2, base + 3]]);

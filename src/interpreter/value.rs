@@ -1,6 +1,6 @@
 use crate::ast::{Expression, ModuleModifiers, Statement};
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 use std::rc::Rc;
 
@@ -11,6 +11,9 @@ pub enum Value {
     Number(f64),
     String(String),
     Vector(Vec<Value>),
+    /// Object value, as returned by builtins like `textmetrics()`.
+    /// Keys iterate in sorted order for deterministic output.
+    Object(BTreeMap<String, Value>),
     Function(FunctionValue),
     Module(ModuleValue),
 }
@@ -189,6 +192,7 @@ impl Value {
             Value::Undef => false,
             Value::Function(_) => true,
             Value::Module(_) => true,
+            Value::Object(_) => true,
         }
     }
 
@@ -235,6 +239,16 @@ impl fmt::Display for Value {
             }
             Value::Function(func) => write!(f, "function {}()", func.name),
             Value::Module(mod_) => write!(f, "module {}()", mod_.name),
+            Value::Object(map) => {
+                write!(f, "{{")?;
+                for (i, (key, val)) in map.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, "; ")?;
+                    }
+                    write!(f, "{} = {}", key, val)?;
+                }
+                write!(f, "}}")
+            }
         }
     }
 }
